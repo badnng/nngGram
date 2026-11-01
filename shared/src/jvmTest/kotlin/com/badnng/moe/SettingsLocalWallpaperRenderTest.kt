@@ -179,11 +179,12 @@ class SettingsLocalWallpaperRenderTest {
                 false
             }
             if (position <= .5f) down = true
+            // The complete preview must fit; large wheel steps can skip its visible range.
             val delta = when {
-                bounds != null && bounds.top < 4 -> -8f
-                bounds != null && bounds.bottom > height - 4 -> 8f
-                bounds != null && bounds.height < minimumHeight -> if (bounds.center.y < height / 2f) -8f else 8f
-                else -> if ((index < 120) == down) 8f else -8f
+                bounds != null && bounds.top < 4 -> -.5f
+                bounds != null && bounds.bottom > height - 4 -> .5f
+                bounds != null && bounds.height < minimumHeight -> if (bounds.center.y < height / 2f) -.5f else .5f
+                else -> if ((index < 120) == down) .5f else -.5f
             }
             scrollAt(width / 2f, height / 2f, deltaY = delta)
             settledFrame(5, 32)

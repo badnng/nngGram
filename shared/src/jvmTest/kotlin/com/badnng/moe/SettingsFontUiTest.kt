@@ -174,7 +174,8 @@ class SettingsFontUiTest {
             settledFrame()
             val bounds = texts(label).firstOrNull()
             if (bounds != null && bounds.top >= 0f && bounds.bottom <= height && bounds.height > 0f) return
-            scrollAt(width - 4f, height / 2f, deltaY = 110f)
+            // Small wheel steps keep a short viewport from jumping past the target.
+            scrollAt(width - 4f, height / 2f, deltaY = 1f)
         }
         error("$label must be reachable in the narrow settings viewport")
     }
