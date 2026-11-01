@@ -17,7 +17,9 @@ function Assert-Rejected([scriptblock]$action, [string]$message) {
 function New-SyntheticPayload([string]$name) {
     $root = Join-Path $caseRoot $name
     New-Item -ItemType Directory -Path $root | Out-Null
-    $files = @('nngGram.exe', 'tdjni.dll', 'bin/skiko-windows-x64.dll', 'bin/nucleus_tao.dll',
+    $nativeLibraries = @('libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll',
+        'libcrypto-3-x64.dll', 'libssl-3-x64.dll', 'zlib1.dll', 'tdjni.dll')
+    $files = @('nngGram.exe') + $nativeLibraries + @('bin/skiko-windows-x64.dll', 'bin/nucleus_tao.dll',
         'bin/libEGL.dll', 'bin/libGLESv2.dll', 'bin/jnidispatch.dll', 'media/ffmpeg.exe', 'media/ffprobe.exe',
         'tdlib.jar', 'TDLib-LICENSE.txt', 'media/FFmpeg-LICENSE.txt', 'licenses/synthetic/NOTICE.txt', 'extra/a & b.txt')
     foreach ($relative in $files) {
@@ -32,17 +34,20 @@ function New-SyntheticPayload([string]$name) {
             [IO.File]::WriteAllBytes($path, $bytes)
         } else { [IO.File]::WriteAllText($path, 'Synthetic installer contract; contains no application or account data.') }
     }
-    $jarHash = (Get-FileHash -LiteralPath (Join-Path $root 'tdlib.jar') -Algorithm SHA256).Hash.ToLowerInvariant()
-    $jniHash = (Get-FileHash -LiteralPath (Join-Path $root 'tdjni.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllLines((Join-Path $root 'manifest.properties'), @('format=1',
+    $manifest = @('format=1',
         'source.commit=9d92b49bc5d0d2e29fe518239af647a88f8680e6', 'architecture=x64', 'binding=official-java-jni',
-        'load.order=tdjni.dll', "sha256.tdlib.jar=$jarHash", "sha256.tdjni.dll=$jniHash"))
+        "load.order=$($nativeLibraries -join ',')")
+    foreach ($relative in @('tdlib.jar') + $nativeLibraries) {
+        $hash = (Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256).Hash.ToLowerInvariant()
+        $manifest += "sha256.$relative=$hash"
+    }
+    [IO.File]::WriteAllLines((Join-Path $root 'manifest.properties'), $manifest)
     return $root
 }
 
 $validRoot = New-SyntheticPayload 'valid'
 $payload = Get-NngGramPayload $validRoot
-Assert-True ($payload.Files.Count -eq 15) 'The full Native Image tree, including extra nested assets, must be retained.'
+Assert-True ($payload.Files.Count -eq 21) 'The full Native Image tree, including all seven TDLib DLLs and nested assets, must be retained.'
 $sourceOne = Join-Path $caseRoot 'first.wxs'
 $sourceTwo = Join-Path $caseRoot 'second.wxs'
 New-NngGramPayloadSource $payload $sourceOne
@@ -65,6 +70,18 @@ $invalidRoot = New-SyntheticPayload 'mismatched-binding'
 [IO.File]::AppendAllText((Join-Path $invalidRoot 'tdlib.jar'), 'changed')
 Assert-Rejected { Get-NngGramPayload $invalidRoot } 'A mismatched pinned JNI binding must be rejected before any compiler runs.'
 $passed.Add('binding-hash-mismatch-rejected')
+
+$invalidRoot = New-SyntheticPayload 'mismatched-cpp-runtime'
+[IO.File]::AppendAllText((Join-Path $invalidRoot 'libstdc++-6.dll'), 'changed')
+Assert-Rejected { Get-NngGramPayload $invalidRoot } 'A native DLL with plus signs still requires its exact manifest SHA-256.'
+$passed.Add('cpp-runtime-hash-mismatch-rejected')
+
+$invalidRoot = New-SyntheticPayload 'manifest-parent-traversal'
+$manifestPath = Join-Path $invalidRoot 'manifest.properties'
+$manifestText = [IO.File]::ReadAllText($manifestPath).Replace('load.order=', 'load.order=../tdjni.dll,')
+[IO.File]::WriteAllText($manifestPath, $manifestText)
+Assert-Rejected { Get-NngGramPayload $invalidRoot } 'Manifest file names must never escape the root native directory.'
+$passed.Add('manifest-parent-traversal-rejected')
 
 $invalidRoot = New-SyntheticPayload 'x86-library'
 $wrong = [IO.File]::ReadAllBytes((Join-Path $invalidRoot 'bin/libEGL.dll'))

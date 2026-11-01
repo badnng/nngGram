@@ -43,7 +43,7 @@ function Get-NngGramPayload {
         'tdjni.dll' -notin $manifest['load.order'].Split(',')) { throw 'The TDLib manifest is incomplete.' }
     $nativeFiles = @('tdlib.jar') + $manifest['load.order'].Split(',')
     foreach ($relative in $nativeFiles) {
-        if ($relative -notmatch '^[a-zA-Z0-9_.-]+$' -or !$lookup.ContainsKey($relative) -or
+        if ($relative -notmatch '^[a-zA-Z0-9_.+-]+$' -or !$lookup.ContainsKey($relative) -or
             !$manifest.ContainsKey("sha256.$relative") -or $lookup[$relative].Sha256 -ne $manifest["sha256.$relative"]) { throw 'A pinned TDLib manifest file is absent or does not match its SHA-256.' }
     }
     foreach ($file in $files) {
