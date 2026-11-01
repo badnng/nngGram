@@ -2,7 +2,7 @@ param(
     [string]$GraalVm,
     [string]$MsvcRoot,
     [ValidatePattern('^[a-zA-Z0-9-]+$')][string]$BuildName = 'native-desktop',
-    [ValidatePattern('^[1-9][0-9]*[gGmM]$')][string]$NativeImageHeap = '4g',
+    [ValidatePattern('^[1-9][0-9]*[gGmM]$')][string]$NativeImageHeap = '8g',
     [ValidateRange(1, 32)][int]$NativeImageThreads = 2,
     [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$AppVersion,
     [switch]$RunTests,
@@ -55,13 +55,11 @@ gradle.projectsEvaluated {
     }
 }
 "@ | Set-Content -LiteralPath $initFile -Encoding utf8
-$tasks = @(':desktopApp:createGraalvmNativeDistributable')
-if ($RunTests) { $tasks = @(':desktopApp:test', ':shared:jvmTest') + $tasks }
-$arguments = $tasks + @(
+$arguments = @(
     "-PnativeImageHeap=$NativeImageHeap", "-PnativeImageThreads=$NativeImageThreads",
     '-Pkotlin.incremental=false', '-Pkotlin.compiler.execution.strategy=in-process',
     '--project-cache-dir', (Join-Path $workspace "build/$BuildName-gradle-cache"),
-    '--init-script', $initFile, '--no-configuration-cache', '--no-build-cache', '--console=plain', '--max-workers=2'
+    '--init-script', $initFile, '--no-configuration-cache', '--no-build-cache', '--console=plain', '--max-workers=2', '--no-daemon'
 )
 if ($RunTests) { $arguments += @('-PnativeSmoke', '-PnativeAcceptance', '-PmediaSmoke') }
 if ($RequireTelegramApi) { $arguments += '-PrequireTelegramApi=true' }
@@ -69,6 +67,16 @@ if ($AppVersion) { $arguments += "-PnnggramVersion=$AppVersion" }
 if ($MsvcRoot) { $arguments += "-PwindowsRc=$(Join-Path $sdkBin 'rc.exe')" }
 Push-Location $workspace
 try {
-    & (Join-Path $workspace 'gradlew.bat') @arguments
+    # Kotlin compilation retains a large heap in its Gradle JVM. Finish that JVM
+    # before Native Image starts, leaving the hosted runner room for its builder.
+    # Single-use daemons avoid stopping or reconfiguring an IDE's existing daemon.
+    $prepareTasks = @(':desktopApp:assemble', ':desktopApp:verifyNativeUberJar')
+    if ($RunTests) { $prepareTasks = @(':desktopApp:test', ':shared:jvmTest') + $prepareTasks }
+    Write-Host 'Phase 1/2: JVM compilation, requested tests and verified Native Image inputs (Gradle heap 3 GiB).'
+    & (Join-Path $workspace 'gradlew.bat') @prepareTasks @arguments '-Dorg.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8'
+    if ($LASTEXITCODE -ne 0) { throw "Native desktop preparation failed ($LASTEXITCODE)." }
+
+    Write-Host "Phase 2/2: Native Image and distribution (builder heap $NativeImageHeap, $NativeImageThreads threads; Gradle heap 1 GiB)."
+    & (Join-Path $workspace 'gradlew.bat') ':desktopApp:createGraalvmNativeDistributable' @arguments '-Dorg.gradle.jvmargs=-Xmx1024m -Dfile.encoding=UTF-8'
     if ($LASTEXITCODE -ne 0) { throw "Native desktop build failed ($LASTEXITCODE)." }
 } finally { Pop-Location }

@@ -108,7 +108,7 @@ jobs:
           cache-disabled: true
       - uses: graalvm/setup-graalvm@f70bc8032f90a104502824a54bcb94b6f01715bc # v1
         with:
-          java-version: '25'
+          java-version: '25.0.2'
           distribution: graalvm-community
           github-token: ${{ github.token }}
           set-java-home: false
@@ -135,7 +135,7 @@ jobs:
           $buildOptions = @{
             GraalVm = $env:GRAALVM_HOME
             BuildName = 'ci-native'
-            NativeImageHeap = '4g'
+            NativeImageHeap = '8g'
             NativeImageThreads = 2
             RequireTelegramApi = $true
             AppVersion = $env:APP_VERSION
