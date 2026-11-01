@@ -1,6 +1,7 @@
 import dev.nucleusframework.desktop.application.dsl.NativeImageMarch
 import dev.nucleusframework.desktop.application.dsl.NativeImageOptimization
 import dev.nucleusframework.desktop.application.dsl.TargetFormat
+import org.gradle.jvm.tasks.Jar
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -32,6 +33,39 @@ val developmentTdlibDirectory = providers.systemProperty("nnggram.tdlib.dir")
     .orElse(rootProject.layout.projectDirectory.dir("native/windows-x64").asFile.absolutePath)
 tasks.withType<JavaExec>().configureEach {
     systemProperty("nnggram.tdlib.dir", developmentTdlibDirectory.get())
+}
+
+// Nucleus 2.5.18 flattens dependencies, then writes a new application manifest.
+// Original dependency signatures cannot describe that derived archive. Keep the
+// signed inputs intact and exclude only signing records from the two uber-JAR outputs.
+tasks.withType<Jar>().matching {
+    it.name == "packageUberJarForCurrentOS" || it.name == "packageReleaseUberJarForCurrentOS"
+}.configureEach {
+    isCaseSensitive = false
+    exclude("META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/*.EC", "META-INF/SIG-*")
+    inputs.property("repackagedDependencySignatures", "excluded-v1")
+}
+
+afterEvaluate {
+    val uberJar = tasks.named<Jar>("packageUberJarForCurrentOS")
+    val originalBc = configurations.runtimeClasspath.map { files ->
+        files.single { it.name.startsWith("bcprov-jdk18on-") && it.extension == "jar" }
+    }
+    val verifier = rootProject.file("scripts/VerifyNativeUberJar.java")
+    val verifyNativeUberJar = tasks.register<Exec>("verifyNativeUberJar") {
+        dependsOn(uberJar)
+        inputs.file(verifier)
+        inputs.file(originalBc)
+        inputs.file(uberJar.flatMap { it.archiveFile })
+        doFirst {
+            commandLine(
+                File(System.getProperty("java.home"), "bin/java.exe").absolutePath,
+                verifier.absolutePath, originalBc.get().absolutePath,
+                uberJar.get().archiveFile.get().asFile.absolutePath,
+            )
+        }
+    }
+    tasks.named("nativeImageCompile") { dependsOn(verifyNativeUberJar) }
 }
 
 nucleus {

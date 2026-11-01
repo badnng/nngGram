@@ -184,6 +184,8 @@ git push origin v0.2.0
 
 `build/release-package` 内包含 MSI、ZIP、`SHA256SUMS.txt`、`build-info.json` 和逐文件哈希。Native Image 使用体积优化，不附带完整 JVM；打包副本排除未使用的 ffplay 和独立调试符号，使用高压缩 ZIP/CAB，保留完整运行 DLL、JNI 声明及许可证。实际大小见每次构建报告。
 
+Nucleus 合并 JAR 会重写应用 Manifest，因此只在生成的 uber-JAR 中排除原依赖的签名记录，原始依赖包保持不变。Native Image 编译前自动执行 `verifyNativeUberJar`，核对原始 Bouncy Castle 签名、合并包可读性、TDLib JNI 元数据及打包后的 Argon2 标准向量，避免把失效签名带入编译器。
+
 ## 更新 TDLib
 
 可以随时更新，但不会在每次 CI 中无条件跟随上游 HEAD：
