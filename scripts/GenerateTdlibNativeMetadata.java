@@ -56,21 +56,24 @@ class GenerateTdlibNativeMetadata {
                 // FindClass/field registration alone does not make a class allocatable in Native Image.
                 List<String> members = new ArrayList<>();
                 members.add("\"name\":" + quote(name));
-                if (apiObject.isAssignableFrom(type) && !type.isInterface() && !Modifier.isAbstract(type.getModifiers())) {
-                    // JNI's registry also registers unsafe allocation. Avoid a second reflective
-                    // class registration, which expands every TdApi nested class's entire nest.
-                    members.add("\"unsafeAllocated\":true");
-                }
+                boolean allocatable = apiObject.isAssignableFrom(type) && !type.isInterface() && !Modifier.isAbstract(type.getModifiers());
                 List<String> fields = Arrays.stream(type.getDeclaredFields())
                     .filter(f -> !Modifier.isStatic(f.getModifiers()) || f.getName().equals("GIT_COMMIT_HASH"))
                     .sorted(Comparator.comparing(Field::getName))
                     .map(f -> "{\"name\":" + quote(f.getName()) + "}").toList();
                 if (!fields.isEmpty()) members.add("\"fields\":[" + String.join(",", fields) + "]");
-                List<String> methods = Arrays.stream(type.getDeclaredMethods())
+                List<String> methods = new ArrayList<>(Arrays.stream(type.getDeclaredMethods())
                     .filter(m -> Modifier.isNative(m.getModifiers()) || m.getName().equals("getConstructor") ||
                         (name.equals(PACKAGE + "Client$LogMessageHandler") && m.getName().equals("onLogMessage")))
                     .sorted(Comparator.comparing(Method::toGenericString))
-                    .map(m -> method(m.getName(), Arrays.stream(m.getParameterTypes()).map(Class::getTypeName).toList())).toList();
+                    .map(m -> method(m.getName(), Arrays.stream(m.getParameterTypes()).map(Class::getTypeName).toList())).toList());
+                if (allocatable) {
+                    // GraalVM 25.0.2 ignores unsafeAllocated in the JNI registry. Registering a
+                    // concrete constructor grants AllocObject support in JNIAccessFeature.addMethod.
+                    // Keep reflection metadata empty to avoid expanding the whole TdApi nest.
+                    type.getDeclaredConstructor(); // Fail generation if upstream changes this contract.
+                    methods.add(method("<init>", List.of()));
+                }
                 if (!methods.isEmpty()) members.add("\"methods\":[" + String.join(",", methods) + "]");
                 entries.add("  {" + String.join(",", members) + "}");
             }

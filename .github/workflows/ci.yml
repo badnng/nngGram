@@ -160,9 +160,18 @@ jobs:
           $nativeExe = (Resolve-Path 'desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram/nngGram.exe').Path
           foreach ($mode in @('tdlib', 'platform', 'media')) {
             $report = Join-Path $env:RUNNER_TEMP "ci-$mode-native-result.txt"
-            & $nativeExe "--$mode-native-smoke" $report
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw "Offline $mode EXE smoke failed." }
+            $process = Start-Process -FilePath $nativeExe -ArgumentList @("--$mode-native-smoke", "`"$report`"") -Wait -PassThru -WindowStyle Hidden
+            if (Test-Path -LiteralPath $report) { Get-Content -LiteralPath $report }
+            if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw "Offline $mode EXE smoke failed." }
           }
+      - name: Retain safe offline EXE diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-native-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-*-native-result.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Package complete native application and installer
         id: package
         shell: pwsh

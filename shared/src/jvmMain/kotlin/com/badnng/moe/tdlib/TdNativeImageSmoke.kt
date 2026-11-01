@@ -204,7 +204,10 @@ internal fun nativeSmokeFailureKind(error: Throwable): String = when (error.java
         is SecurityException -> "ACCESS"
         is kotlinx.coroutines.TimeoutCancellationException -> "TIMEOUT"
         is ClassCastException -> "RESPONSE_TYPE"
-        is IllegalArgumentException -> "ARGUMENT"
+        is IllegalArgumentException -> if (error.stackTrace.any {
+            it.className == "com.oracle.svm.core.graal.snippets.SubstrateAllocationSnippets" &&
+                it.methodName == "slowPathHubOrUnsafeInstantiationError"
+        }) "JNI_ALLOCATION" else "ARGUMENT"
         is IllegalStateException -> "ASSERTION"
         else -> "INTERNAL"
     }

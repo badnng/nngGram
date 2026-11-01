@@ -52,8 +52,9 @@ class NativeImageMetadataTest {
             val entry = assertNotNull(entries[name], "Missing native class metadata: $name")
             val type = Class.forName(name, false, TdApi::class.java.classLoader)
             if (TdApi.Object::class.java.isAssignableFrom(type) && !type.isInterface && !Modifier.isAbstract(type.modifiers)) {
-                assertTrue(entry.contains("\"unsafeAllocated\":true"),
-                    "JNI AllocObject requires allocation metadata for every concrete API type: $name")
+                assertNotNull(type.getDeclaredConstructor())
+                assertTrue(entry.contains("{\"name\":\"<init>\",\"parameterTypes\":[]}"),
+                    "GraalVM 25.0.2 JNI AllocObject requires constructor registration for every concrete API type: $name")
             }
             type.declaredFields.filter { !Modifier.isStatic(it.modifiers) || it.name == "GIT_COMMIT_HASH" }.forEach {
                 assertTrue(entry.contains("\"name\":\"${it.name}\""), "Missing native field: $name.${it.name}")
@@ -102,6 +103,19 @@ class NativeImageMetadataTest {
         assertTrue(report.contains("engine=FAILED"))
         assertTrue(report.contains("engineFailure=NATIVE"))
         assertFalse(report.contains("raw TDLib"))
+    }
+
+    @Test
+    fun nativeAllocationFailureExposesOnlyAnAllowlistedCategory() {
+        val failure = IllegalArgumentException("private native detail").apply {
+            stackTrace = arrayOf(StackTraceElement(
+                "com.oracle.svm.core.graal.snippets.SubstrateAllocationSnippets",
+                "slowPathHubOrUnsafeInstantiationError", "private-path.java", 123,
+            ))
+        }
+        assertEquals("JNI_ALLOCATION", nativeSmokeFailureKind(failure))
+        assertEquals("ARGUMENT", nativeSmokeFailureKind(IllegalArgumentException("private detail")))
+        assertFalse(NativeSmokeProgress().failure(failure).contains("private"))
     }
 
     private fun bindingJar() = Path.of(TdApi::class.java.protectionDomain.codeSource.location.toURI())
