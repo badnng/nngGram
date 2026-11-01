@@ -27,6 +27,10 @@ function Run([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program exited with code $LASTEXITCODE" }
 }
+if (-not $BindingsOnly) {
+    Import-Module (Join-Path $PSScriptRoot 'TdlibLicenses.psm1') -Force
+    Copy-TdlibDependencyLicenses -ToolchainDirectory $toolchain -BundleDirectory $bundle
+}
 if (-not (Test-Path (Join-Path $source '.git'))) {
     Run 'git' @('init', $source)
     Run 'git' @('-C', $source, 'remote', 'add', 'origin', $pin.repository)
@@ -113,12 +117,6 @@ function Collect([string]$Name) {
 }
 Collect 'tdjni.dll'
 Copy-Item -LiteralPath (Join-Path $source 'LICENSE_1_0.txt') -Destination (Join-Path $bundle 'TDLib-LICENSE.txt') -Force
-$licenses = Join-Path $bundle 'licenses'
-New-Item -ItemType Directory -Path $licenses -Force | Out-Null
-foreach ($package in @('gcc-libs', 'libwinpthread', 'openssl', 'zlib', 'crt')) {
-    $packageLicense = Join-Path $toolchain "share/licenses/$package"
-    if (Test-Path -LiteralPath $packageLicense) { Copy-Item -LiteralPath $packageLicense -Destination $licenses -Recurse -Force }
-}
 $manifest = @(
     'format=1', "source.commit=$($pin.commit)", 'architecture=x64', 'binding=official-java-jni',
     'binding.loader.patch=absolute-path-v1', "load.order=$($loadOrder -join ',')",
@@ -130,5 +128,5 @@ foreach ($name in @('tdlib.jar') + $loadOrder.ToArray()) {
     $manifest += "sha256.$name=$((Get-FileHash -LiteralPath (Join-Path $bundle $name) -Algorithm SHA256).Hash.ToLowerInvariant())"
 }
 $manifest | Set-Content -LiteralPath (Join-Path $bundle 'manifest.properties') -Encoding utf8
-& (Join-Path $MsysRoot 'usr/bin/pacman.exe') -Q | Select-String 'mingw-w64-ucrt-x86_64-(gcc|openssl|zlib|libwinpthread|cmake|ninja)|^gperf ' | ForEach-Object { $_.Line } | Set-Content -LiteralPath (Join-Path $bundle 'toolchain-versions.txt') -Encoding utf8
+& (Join-Path $MsysRoot 'usr/bin/pacman.exe') -Q | Select-String 'mingw-w64-ucrt-x86_64-(gcc|libgcc|libstdc\+\+|openssl|zlib|libwinpthread|crt|cmake|ninja)|^gperf ' | ForEach-Object { $_.Line } | Set-Content -LiteralPath (Join-Path $bundle 'toolchain-versions.txt') -Encoding utf8
 Write-Output "Prepared pinned TDLib bundle at $bundle"

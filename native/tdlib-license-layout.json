@@ -1,0 +1,10 @@
+{
+  "filenamePattern": "(?:COPYING|LICENSE|README|COPYRIGHT)[A-Za-z0-9._-]*",
+  "groups": [
+    { "name": "GCC runtime", "alternatives": [["libgcc", "libstdc++"], ["gcc-libs"]] },
+    { "name": "Windows threads", "alternatives": [["libwinpthread"]] },
+    { "name": "OpenSSL", "alternatives": [["openssl"]] },
+    { "name": "zlib", "alternatives": [["zlib"]] },
+    { "name": "MinGW CRT", "alternatives": [["crt"]] }
+  ]
+}

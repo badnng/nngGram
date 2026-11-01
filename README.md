@@ -198,6 +198,8 @@ CI 会在 TDLib 编译完成后、应用测试之前立即保存完整依赖缓�
 
 后续构建只在源码提交、实际工具链及构建脚本完全匹配时复用缓存；恢复时核验哈希、架构和 Java/JNI 来源，并重新生成 Native Image 元数据。缓存可能被 GitHub 淘汰，未命中时仍从源码构建。独立 ZIP 在该次 Actions 的 Artifacts 中下载，不提交到源码仓库。JVM 测试结果另外保留 14 天，方便失败时查看完整断言。
 
+依赖许可证在开始 TDLib 编译前检查并收集，构建与导出共用 `native/tdlib-license-layout.json`。它同时支持旧版 MSYS2 的 `gcc-libs` 和新版拆分的 `libgcc`＋`libstdc++`；新版两份都必须存在，真实缺失时报告具体类别及查找位置。
+
 ## 源码与许可
 
 nngGram 原创代码按 **GNU GPL v3（GPL-3.0-only）** 发布，见 [LICENSE](LICENSE)。第三方代码、字体、音效、壁纸和安装器源文件保留各自的许可证与来源声明；`third_party/` 和必要资源许可证随源码保留。

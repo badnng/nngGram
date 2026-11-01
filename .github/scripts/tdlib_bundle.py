@@ -14,8 +14,11 @@ import zipfile
 DLLS = {'tdjni.dll', 'libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll',
         'libcrypto-3-x64.dll', 'libssl-3-x64.dll', 'zlib1.dll'}
 TOP_FILES = DLLS | {'tdlib.jar', 'manifest.properties', 'TDLib-LICENSE.txt', 'toolchain-versions.txt'}
-LICENSE_PACKAGES = {'gcc-libs', 'libwinpthread', 'openssl', 'zlib', 'crt'}
+LICENSE_LAYOUT = json.loads((Path(__file__).resolve().parents[2] / 'native/tdlib-license-layout.json').read_text(encoding='utf-8'))
+LICENSE_GROUPS = LICENSE_LAYOUT['groups']
+LICENSE_PACKAGES = {package for group in LICENSE_GROUPS for alternative in group['alternatives'] for package in alternative}
 BUILD_INPUTS = ('native/tdlib-source.properties', 'scripts/build-tdlib.ps1',
+                'native/tdlib-license-layout.json', 'scripts/TdlibLicenses.psm1',
                 'scripts/GenerateTdlibNativeMetadata.java', '.github/scripts/tdlib_bundle.py',
                 '.github/actions/prepare-native/action.yml')
 
@@ -82,7 +85,7 @@ def allowed(name):
         return True
     parts = name.split('/')
     return (len(parts) == 3 and parts[0] == 'licenses' and parts[1] in LICENSE_PACKAGES
-            and re.fullmatch(r'(?:COPYING|LICENSE|README|COPYRIGHT)[A-Za-z0-9._-]*', parts[2], re.IGNORECASE))
+            and re.fullmatch(LICENSE_LAYOUT['filenamePattern'], parts[2], re.IGNORECASE))
 
 
 def verify_pe(path):
@@ -103,9 +106,11 @@ def validate_bundle(bundle, expected):
     files = regular_files(bundle)
     if not TOP_FILES.issubset(files) or not all(allowed(name) for name in files):
         raise ValueError('Bundle is incomplete or contains unexpected files')
-    for package in LICENSE_PACKAGES:
-        if not any(name.startswith(f'licenses/{package}/') for name in files):
-            raise ValueError('Missing dependency license')
+    present = {name.split('/')[1] for name in files if name.startswith('licenses/')}
+    for group in LICENSE_GROUPS:
+        if not any(set(alternative).issubset(present) for alternative in group['alternatives']):
+            alternatives = ' OR '.join(' + '.join(alternative) for alternative in group['alternatives'])
+            raise ValueError(f"Missing dependency license for {group['name']}: expected {alternatives}; found {', '.join(sorted(present)) or '(none)'}")
     if any(not 0 < path.stat().st_size <= 500_000_000 for path in files.values()):
         raise ValueError('Invalid dependency file size')
     manifest = properties(files['manifest.properties'].read_text(encoding='utf-8-sig'))
