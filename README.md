@@ -131,7 +131,7 @@ proxy_password=
 
 1. 在 MSYS2 UCRT64 安装 `git gperf mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-zlib`。
 2. 运行 `./scripts/build-tdlib.ps1 -MsysRoot 'MSYS2目录' -Jdk 'JDK21目录'`，从官方固定提交构建完整 Java/JNI 绑定、DLL、依赖与 JNI 元数据。
-3. 运行 `./scripts/prepare-media.ps1 -FfmpegDirectory 'FFmpeg的bin目录'`。该目录应包含 `ffmpeg.exe`、`ffprobe.exe` 和所需 DLL，其上一级保留 `LICENSE.txt`。CI 使用固定 SHA256 的 shared 发行包。
+3. 运行 `./scripts/prepare-media.ps1 -FfmpegDirectory 'FFmpeg的bin目录'`。该目录应包含 `ffmpeg.exe`、`ffprobe.exe` 和所需 DLL，其上一级保留发行包自带的 `LICENSE` 或 `LICENSE.txt`。CI 使用固定 SHA256 的 shared 发行包。
 4. 在 [Telegram API development tools](https://my.telegram.org) 申请自己的应用身份。复制 `telegram-api.example.properties` 为 `telegram-api.local.properties`，仅在本机填写 `api_id`、`api_hash`，不要提交该文件。
 5. 开发运行用 `./gradlew.bat :desktopApp:run --no-configuration-cache --no-build-cache`；原生发布使用上文 `build-desktop-native.ps1`，必须带 `-RequireTelegramApi`。
 

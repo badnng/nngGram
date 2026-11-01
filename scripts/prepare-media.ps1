@@ -12,8 +12,16 @@ $executables = @('ffmpeg.exe', 'ffprobe.exe') | ForEach-Object {
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { throw "$_ is missing." }
     Get-Item -LiteralPath $candidate
 }
-$license = Join-Path (Split-Path -Parent $source) 'LICENSE.txt'
-if (-not (Test-Path -LiteralPath $license -PathType Leaf)) { throw 'Keep the FFmpeg distribution LICENSE.txt beside its bin directory.' }
+# Gyan's pinned shared ZIP uses LICENSE; existing local bundles may use LICENSE.txt.
+$license = @('LICENSE.txt', 'LICENSE') | ForEach-Object { Join-Path (Split-Path -Parent $source) $_ } |
+    Where-Object { (Test-Path -LiteralPath $_ -PathType Leaf) -and (Get-Item -LiteralPath $_).Length -gt 0 } |
+    Select-Object -First 1
+if (!$license) { throw 'Keep the original nonempty FFmpeg distribution LICENSE or LICENSE.txt beside its bin directory.' }
+# Consume the complete output before selecting its first line. Closing the pipe early
+# can terminate ffmpeg with a nonzero exit code, which GitHub's pwsh wrapper propagates.
+$versionLines = @(& $executable -version 2>&1)
+if ($LASTEXITCODE -ne 0 -or !$versionLines.Count) { throw 'FFmpeg version probe failed.' }
+$version = $versionLines[0].ToString()
 $destination = [IO.Path]::GetFullPath((Join-Path $repository 'native/windows-x64/media'))
 if (-not $destination.StartsWith($repository + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid destination.' }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
@@ -22,7 +30,6 @@ foreach ($binary in $binaries) {
     Copy-Item -LiteralPath $binary.FullName -Destination (Join-Path $destination $binary.Name) -Force
 }
 Copy-Item -LiteralPath $license -Destination (Join-Path $destination 'FFmpeg-LICENSE.txt') -Force
-$version = (& $executable -version 2>&1 | Select-Object -First 1).ToString()
 $provenance = @($version, 'Prepared locally for media decoding, video inspection and playback. Binaries and their license are kept together.')
 foreach ($binary in $binaries) {
     $hash = (Get-FileHash -LiteralPath $binary.FullName -Algorithm SHA256).Hash
