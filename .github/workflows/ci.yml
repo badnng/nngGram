@@ -43,6 +43,18 @@ jobs:
           '@ | Set-Content "$env:RUNNER_TEMP/ci-checks.init.gradle"
           ./gradlew.bat :desktopApp:assemble :desktopApp:test :shared:jvmTest --project-cache-dir build/ci-checks-gradle-cache --init-script "$env:RUNNER_TEMP/ci-checks.init.gradle" --no-configuration-cache --no-build-cache --console=plain --max-workers=2
           if ($LASTEXITCODE -ne 0) { throw 'JVM checks failed.' }
+      - name: Retain exact secretless JVM test failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-jvm-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            shared/build/ci-checks/test-results/jvmTest/
+            shared/build/ci-checks/reports/tests/jvmTest/
+            desktopApp/build/ci-checks/test-results/test/
+            desktopApp/build/ci-checks/reports/tests/test/
+          if-no-files-found: warn
+          retention-days: 14
   native:
     name: Trusted Windows native distribution
     needs: checks
