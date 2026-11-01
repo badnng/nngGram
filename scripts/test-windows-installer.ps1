@@ -1,4 +1,4 @@
-param([switch]$CompileSyntheticMsi, [switch]$SkipMsiValidation, [switch]$TestReparsePoint)
+param([switch]$CompileSyntheticMsi, [switch]$SkipMsiValidation, [switch]$TestReparsePoint, [string]$WixDirectory)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'InstallerPayload.psm1') -Force
@@ -61,6 +61,14 @@ Assert-True ($xml.SelectNodes('//w:File[@Id="MainExecutable"]', $namespace).Coun
 Assert-True ($xml.SelectNodes('//w:RemoveFile', $namespace).Count -eq 0) 'Generated uninstall actions must not use wildcard file deletion.'
 $passed.Add('complete-and-deterministic-payload')
 
+$ownedDirectories = @('INSTALLFOLDER') + @($xml.SelectNodes('//w:Directory', $namespace) | ForEach-Object { $_.Id })
+$removals = @($xml.SelectNodes('//w:RemoveFolder', $namespace))
+foreach ($directory in $ownedDirectories) {
+    Assert-True (@($removals | Where-Object { $_.Directory -eq $directory -and $_.On -eq 'uninstall' }).Count -eq 1) 'Every program directory, including fileless ancestors, needs exactly one empty-folder cleanup row.'
+}
+Assert-True ($removals.Count -eq $ownedDirectories.Count) 'Generated cleanup must target only owned program directories.'
+$passed.Add('all-program-ancestors-have-empty-only-cleanup')
+
 $invalidRoot = New-SyntheticPayload 'missing-main'
 Rename-Item -LiteralPath (Join-Path $invalidRoot 'nngGram.exe') -NewName 'renamed.exe'
 Assert-Rejected { Get-NngGramPayload $invalidRoot } 'A folder without the actual main EXE must be rejected.'
@@ -118,6 +126,12 @@ Assert-True ($product.SelectSingleNode('//w:CustomAction[@Id="ConfigureInitialDa
 Assert-True ($product.SelectSingleNode('//w:CustomAction[@Id="ConfigureInitialDataDirectory"]', $productNamespace).Impersonate -eq 'yes') 'The helper must configure the installing user without elevation.'
 Assert-True ($product.SelectSingleNode('//w:InstallExecuteSequence/w:Custom[@Action="ConfigureInitialDataDirectory"]', $productNamespace).InnerText.Contains('NOT NNGGRAM_EXISTING_CONFIG')) 'An upgrade must preserve existing local configuration.'
 Assert-True ($product.SelectNodes('//w:Directory[@Id="DATAFOLDER"]//w:Component', $productNamespace).Count -eq 0) 'Data directory contents must never be owned by MSI uninstall.'
+Assert-True ($null -ne $product.SelectSingleNode('//w:Directory[@Id="TARGETDIR"]/w:Directory[@Id="DATAFOLDER"]', $productNamespace)) 'The app-managed data path must stay outside MSI-managed user-profile directories.'
+Assert-True ($product.SelectNodes('//w:Directory[@Id="NngGramConfigFolder"]', $productNamespace).Count -eq 0) 'The application configuration directory must not be authored as an MSI-owned folder.'
+Assert-True ($product.SelectNodes('//w:RemoveFolder[@Directory="DATAFOLDER" or @Directory="NngGramConfigFolder"]', $productNamespace).Count -eq 0) 'Uninstall must not remove even an empty application data/configuration directory.'
+$defaultData = $product.SelectSingleNode('//w:SetProperty[@Id="DATAFOLDER"]', $productNamespace)
+Assert-True ($defaultData.Value -eq '[LocalAppDataFolder]nngGram\data\' -and $defaultData.Before -eq 'CostFinalize' -and
+    $defaultData.Sequence -eq 'both' -and $defaultData.InnerText -eq 'NOT DATAFOLDER') 'The default path must resolve during both costing sequences and preserve an explicit user choice.'
 Assert-True ($product.SelectSingleNode('//w:Property[@Id="MSIRESTARTMANAGERCONTROL"]', $productNamespace).Value -eq 'Disable') 'An installer must not force shutdown of an active TDLib client.'
 Assert-True ($product.SelectSingleNode('//w:Property[@Id="REBOOT"]', $productNamespace).Value -eq 'ReallySuppress') 'An installer must not automatically reboot the user machine.'
 $passed.Add('owned-install-and-uninstall-boundaries')
@@ -172,10 +186,11 @@ $passed.Add('empty-executable-rejected')
 
 if ($CompileSyntheticMsi) {
     $buildName = $caseName + '-synthetic-msi'
-    $compiled = & (Join-Path $PSScriptRoot 'build-windows-installer.ps1') -AppDirectory $validRoot -BuildName $buildName -ProductVersion '0.0.1' -SkipMsiValidation:$SkipMsiValidation
+    $syntheticWixDirectory = if ($WixDirectory) { (Resolve-Path -LiteralPath $WixDirectory).Path } else { Join-Path $workspace 'build/wix311' }
+    $compiled = & (Join-Path $PSScriptRoot 'build-windows-installer.ps1') -AppDirectory $validRoot -BuildName $buildName -ProductVersion '0.0.1' -WixDirectory $syntheticWixDirectory -SkipMsiValidation:$SkipMsiValidation
     Assert-True ($compiled.Status -eq 'MSI_COMPILED_NOT_INSTALLED') 'Synthetic package compilation must report its actual scope.'
     # Open only this synthetic MSI database read-only; never invoke an installation session.
-    Add-Type -Path (Join-Path $workspace 'build/wix311/Microsoft.Deployment.WindowsInstaller.dll')
+    Add-Type -Path (Join-Path $syntheticWixDirectory 'Microsoft.Deployment.WindowsInstaller.dll')
     $database = [Microsoft.Deployment.WindowsInstaller.Database]::new($compiled.Msi,
         [Microsoft.Deployment.WindowsInstaller.DatabaseOpenMode]::ReadOnly)
     try {
@@ -212,7 +227,39 @@ if ($CompileSyntheticMsi) {
         } finally { $view.Dispose() }
         Assert-True ($sequence['RemoveExistingProducts'] -gt $sequence['InstallInitialize'] -and
             $sequence['RemoveExistingProducts'] -lt $sequence['ProcessComponents']) 'The actual compiled upgrade removal must stay inside the rollback transaction before installing new components.'
+
+        $view = $database.OpenView('SELECT `DirProperty`, `FileName`, `InstallMode` FROM `RemoveFile`')
+        $removedDirectories = @{}
+        try {
+            $view.Execute()
+            while ($record = $view.Fetch()) {
+                try {
+                    Assert-True ($record.GetString(1) -notin @('DATAFOLDER','NngGramConfigFolder')) 'Compiled uninstall must not target application data or configuration folders.'
+                    if ($record.IsNull(2) -and $record.GetInteger(3) -eq 2) { $removedDirectories[$record.GetString(1)] = $true }
+                } finally { $record.Dispose() }
+            }
+        } finally { $view.Dispose() }
+        foreach ($directory in $ownedDirectories + @('UserProgramsFolder')) {
+            Assert-True ($removedDirectories.ContainsKey($directory)) 'The compiled MSI must clean every empty program ancestor, including directories with only subdirectories.'
+        }
     } finally { $database.Dispose() }
+    # Costing and a directory selection only: never run INSTALL, AppSearch, the
+    # configuration helper or any action which installs files/reads account config.
+    $session = [Microsoft.Deployment.WindowsInstaller.Installer]::OpenPackage($compiled.Msi, $true)
+    try {
+        $session['INSTALLFOLDER'] = (Join-Path $caseRoot 'uncreated-program-target') + '\'
+        foreach ($action in @('CostInitialize','SetDefaultDataFolder','FileCost','CostFinalize')) {
+            $session.DoAction($action)
+        }
+        $actualData = $session.GetTargetPath('DATAFOLDER')
+        $expectedData = Join-Path $session['LocalAppDataFolder'] 'nngGram/data'
+        Assert-True ([IO.Path]::IsPathRooted($expectedData) -and $actualData.TrimEnd('\') -ieq $expectedData.TrimEnd('\')) 'Default data selection must resolve to the actual LocalAppData nngGram/data path.'
+        $selectedData = (Join-Path $caseRoot 'uncreated-selected-data') + '\'
+        $session.SetTargetPath('DATAFOLDER', $selectedData)
+        Assert-True ($session.GetTargetPath('DATAFOLDER').TrimEnd('\') -ieq $selectedData.TrimEnd('\')) 'The real directory-selection API must retain an explicit user path.'
+        Assert-True (!(Test-Path -LiteralPath $selectedData) -and !(Test-Path -LiteralPath (Join-Path $caseRoot 'uncreated-program-target'))) 'Costing must not create or install directories.'
+    } finally { $session.Dispose() }
+    $passed.Add('synthetic-costing-default-and-selected-data-directory')
     $passed.Add($(if ($SkipMsiValidation) { 'synthetic-wix-compilation-ice-skipped-not-installed' } else { 'synthetic-wix-compilation-ice-passed-not-installed' }))
 }
 $result = [pscustomobject]@{ Status = 'INSTALLER_CONTRACTS_PASSED'; Count = $passed.Count; Cases = @($passed);

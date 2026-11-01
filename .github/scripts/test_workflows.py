@@ -59,6 +59,16 @@ class WorkflowTests(unittest.TestCase):
         checks = workflow.split('  native:')[0]
         self.assertLess(checks.index('uses: ./.github/actions/prepare-native'), checks.index('Assemble and run JVM tests'))
 
+    def test_synthetic_msi_validation_precedes_native_image_and_reuses_verified_wix(self):
+        text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        native = text.split('  native:')[1].split('  release:')[0]
+        self.assertEqual(1, native.count('prepare-wix-ci.ps1'))
+        self.assertLess(native.index('prepare-wix-ci.ps1'), native.index('-CompileSyntheticMsi'))
+        self.assertLess(native.index('-CompileSyntheticMsi'), native.index('Build native application'))
+        self.assertLess(native.index('Build native application'), native.index('package-desktop.ps1'))
+        self.assertIn('-WixDirectory "$env:RUNNER_TEMP/wix311"', native)
+        self.assertNotIn('-SkipMsiValidation', native)
+
     def test_yaml_if_parser_available(self):
         try:
             import yaml

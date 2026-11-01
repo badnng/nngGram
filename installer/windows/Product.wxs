@@ -15,6 +15,9 @@
       <RegistrySearch Id="ExistingInstallFolder" Root="HKCU" Key="Software\nngGram\Installer" Name="InstallFolder" Type="raw" Win64="yes" />
     </Property>
     <Property Id="DATAFOLDER" Secure="yes" />
+    <!-- This selectable path belongs to the app, outside MSI's installed directory tree. -->
+    <SetProperty Id="DATAFOLDER" Action="SetDefaultDataFolder" Value="[LocalAppDataFolder]nngGram\data\"
+                 Before="CostFinalize" Sequence="both">NOT DATAFOLDER</SetProperty>
     <Property Id="NNGGRAM_EXISTING_CONFIG" Secure="yes">
       <DirectorySearch Id="ExistingConfigDirectory" Path="[LocalAppDataFolder]nngGram" Depth="0">
         <FileSearch Id="ExistingConfiguration" Name="tdlib.properties" />
@@ -27,16 +30,15 @@
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="程序已安装。卸载或升级会保留你的账号、媒体和本地设置。" />
     <Directory Id="TARGETDIR" Name="SourceDir">
+      <!-- No component/CreateFolder/RemoveFolder owns this application data path. -->
+      <Directory Id="DATAFOLDER" Name="data" />
       <Directory Id="LocalAppDataFolder">
-        <!-- No components own these data folders. Uninstall must never remove them. -->
-        <Directory Id="NngGramConfigFolder" Name="nngGram">
-          <Directory Id="DATAFOLDER" Name="data" />
-        </Directory>
         <Directory Id="UserProgramsFolder" Name="Programs">
           <Directory Id="INSTALLFOLDER" Name="nngGram">
             <Component Id="InstallLocation" Guid="{02A8FF5E-3B2B-48AE-8647-93801536D397}" Win64="yes">
               <RegistryValue Root="HKCU" Key="Software\nngGram\Installer" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
               <RemoveFolder Id="RemoveInstallFolderWhenEmpty" On="uninstall" />
+              <RemoveFolder Id="RemoveUserProgramsWhenEmpty" Directory="UserProgramsFolder" On="uninstall" />
             </Component>
             <Directory Id="InstallerLicenseFolder" Name="installer-licenses">
               <Component Id="InstallerLicenseSources" Guid="{B28980DA-A41D-4DCC-B712-781F40EE1EB0}" Win64="yes">

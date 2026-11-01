@@ -91,12 +91,14 @@ function New-NngGramPayloadSource {
     foreach ($file in $Payload.Files) {
         $parentPath = ''
         $parentNode = $rootDirectory
+        $ancestors = @('')
         $parts = $file.Relative.Split('/')
         for ($index = 0; $index -lt $parts.Length - 1; $index++) {
             $next = if ($parentPath) { $parentPath + '/' + $parts[$index] } else { $parts[$index] }
             if (!$directories.ContainsKey($next)) { $directories[$next] = Add-Element $parentNode 'Directory' @{ Id = 'D' + (Stable-Hash $next).Substring(0, 32); Name = $parts[$index] } }
             $parentPath = $next
             $parentNode = $directories[$next]
+            $ancestors += $next
         }
         $hash = Stable-Hash $file.Relative
         $componentId = 'C' + $hash.Substring(0, 32)
@@ -106,9 +108,12 @@ function New-NngGramPayloadSource {
         [void](Add-Element $component 'File' @{ Id = $fileId; Source = $file.FullName; Name = $parts[-1] })
         [void](Add-Element $component 'RegistryValue' @{ Root = 'HKCU'; Key = 'Software\nngGram\Installer\Files';
             Name = $hash.Substring(0, 32); Type = 'integer'; Value = '1'; KeyPath = 'yes' })
-        if (!$directoryOwners.ContainsKey($parentPath)) {
-            $directoryOwners[$parentPath] = $true
-            [void](Add-Element $component 'RemoveFolder' @{ Id = 'R' + $hash.Substring(0, 32); On = 'uninstall' })
+        foreach ($ancestor in $ancestors) {
+            if (!$directoryOwners.ContainsKey($ancestor)) {
+                $directoryOwners[$ancestor] = $true
+                [void](Add-Element $component 'RemoveFolder' @{ Id = 'R' + (Stable-Hash ('directory/' + $ancestor)).Substring(0, 32);
+                    Directory = $directories[$ancestor].GetAttribute('Id'); On = 'uninstall' })
+            }
         }
         [void](Add-Element $group 'ComponentRef' @{ Id = $componentId })
     }
