@@ -1,0 +1,9 @@
+[
+  {"name":"com.badnng.moe.notifications.ToastQueryInterface","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer","com.sun.jna.Pointer","com.sun.jna.Pointer"]}]},
+  {"name":"com.badnng.moe.notifications.ToastReference","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer"]}]},
+  {"name":"com.badnng.moe.notifications.ToastEventInvoke","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer","com.sun.jna.Pointer","com.sun.jna.Pointer"]}]},
+  {"name":"com.badnng.moe.notifications.ToastActivateInvoke","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer","com.sun.jna.Pointer","com.sun.jna.Pointer","com.sun.jna.Pointer","int"]}]},
+  {"name":"com.badnng.moe.notifications.ToastCreateInstance","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer","com.sun.jna.Pointer","com.sun.jna.Pointer","com.sun.jna.Pointer"]}]},
+  {"name":"com.badnng.moe.notifications.ToastLockServer","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer","int"]}]},
+  {"name":"com.sun.jna.CallbackReference$DefaultCallbackProxy","methods":[{"name":"callback","parameterTypes":["java.lang.Object[]"]}]}
+]

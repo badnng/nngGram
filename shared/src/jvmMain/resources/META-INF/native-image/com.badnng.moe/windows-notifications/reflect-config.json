@@ -1,0 +1,10 @@
+[
+  {"name":"com.badnng.moe.notifications.ToastQueryInterface","allPublicMethods":true},
+  {"name":"com.badnng.moe.notifications.ToastReference","allPublicMethods":true},
+  {"name":"com.badnng.moe.notifications.ToastEventInvoke","allPublicMethods":true},
+  {"name":"com.badnng.moe.notifications.ToastActivateInvoke","allPublicMethods":true},
+  {"name":"com.badnng.moe.notifications.ToastCreateInstance","allPublicMethods":true},
+  {"name":"com.badnng.moe.notifications.ToastLockServer","allPublicMethods":true},
+  {"name":"com.sun.jna.CallbackReference$DefaultCallbackProxy","allDeclaredMethods":true},
+  {"name":"com.sun.jna.CallbackReference$AttachOptions","allDeclaredFields":true,"allDeclaredConstructors":true}
+]

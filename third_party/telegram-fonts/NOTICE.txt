@@ -1,0 +1,17 @@
+Open Sans, version 1.10
+Digitized data copyright (c) 2010-2011, Google Corporation.
+Licensed under the Apache License, Version 2.0; see LICENSE-2.0.txt.
+
+The following unmodified font files come from Telegram Desktop's pinned
+Desktop App Toolkit lib_ui submodule:
+https://github.com/desktop-app/lib_ui/tree/79c846fdf0327ff99d3efdc1cc4e11ef50bedc6d/fonts
+
+Original name                 Application resource
+OpenSans-Regular.ttf          telegram_open_sans_regular.ttf
+OpenSans-SemiBold.ttf         telegram_open_sans_semibold.ttf
+OpenSans-Italic.ttf            telegram_open_sans_italic.ttf
+OpenSans-SemiBoldItalic.ttf   telegram_open_sans_semibold_italic.ttf
+
+The files are in shared/src/commonMain/composeResources/font/.
+The copyright and license attribution above is retained from their embedded
+name tables. Only the resource filenames have changed.

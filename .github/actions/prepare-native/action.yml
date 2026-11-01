@@ -1,0 +1,24 @@
+name: Prepare pinned native dependencies
+description: Build the pinned official TDLib Java/JNI binding using the UCRT64 toolchain.
+runs:
+  using: composite
+  steps:
+    - name: Install JDK for TDLib and Gradle
+      uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      with:
+        distribution: zulu
+        java-version: '21'
+    - name: Install MSYS2 UCRT64 build tools
+      id: msys
+      uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+      with:
+        location: ${{ runner.temp }}
+        msystem: UCRT64
+        update: true
+        install: >-
+          git gperf mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+          mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-zlib
+    - name: Build pinned TDLib bundle and generated binding metadata
+      shell: pwsh
+      run: ./scripts/build-tdlib.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -Jdk $env:JAVA_HOME -Jobs 2

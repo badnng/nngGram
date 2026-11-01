@@ -1,0 +1,18 @@
+Telegram Desktop wallpaper artwork
+Copyright (c) 2014-2026 The Telegram Desktop Authors.
+License: GNU General Public License version 3 or, at your option, any later version.
+The full license is included in telegram-desktop-gpl-3.0.txt.
+
+Official source: https://github.com/telegramdesktop/tdesktop
+Pinned source commit: 83f9f56347cc3421c1e3ef537c7bb6dd06ce7cd0
+
+telegram_wallpaper_day.jpg and telegram_wallpaper_night.jpg are unmodified
+background.jpg entries from Telegram/Resources/day-custom-base.tdesktop-theme
+and Telegram/Resources/night-custom-base.tdesktop-theme respectively.
+telegram_wallpaper_pattern.png is an unchanged lossless rasterization of
+Telegram/Resources/art/background.tgv (gzip-compressed SVG).
+The original sources, upstream LEGAL and LICENSE are retained in the source
+distribution under third_party/telegram-wallpaper/.
+
+No Telegram endorsement is implied. The artwork retains its upstream license;
+it is not offered under an additional permissive artwork license.

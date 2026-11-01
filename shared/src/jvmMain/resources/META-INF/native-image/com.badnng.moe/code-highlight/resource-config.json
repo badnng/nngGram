@@ -1,0 +1,4 @@
+{"resources":{"includes":[
+  {"pattern":"\\Qcode-highlight/grammars.dat\\E"},
+  {"pattern":"\\Qcode-highlight/LICENSE\\E"}
+]}}

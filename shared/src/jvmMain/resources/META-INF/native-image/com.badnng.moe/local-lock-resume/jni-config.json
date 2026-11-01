@@ -1,0 +1,3 @@
+[
+  {"name":"com.badnng.moe.security.LocalLockWindowsResumeCallback","methods":[{"name":"invoke","parameterTypes":["com.sun.jna.Pointer","int","com.sun.jna.Pointer"]}]}
+]

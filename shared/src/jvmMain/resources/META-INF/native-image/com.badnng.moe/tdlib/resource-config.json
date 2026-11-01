@@ -1,0 +1,5 @@
+{"resources":{"includes":[
+  {"pattern":"\\Qtdlib-source.properties\\E"},
+  {"pattern":"\\Qtdlib-native-image.properties\\E"},
+  {"pattern":"\\QMETA-INF/nnggram-tdlib.properties\\E"}
+]}}

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="nngGram" Language="2052" Version="$(var.ProductVersion)" Manufacturer="nngGram"
+           UpgradeCode="{2D13D644-7FAE-4FC2-9E41-E608B981A3D9}">
+    <Package Id="*" InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64"
+             Description="nngGram Windows x64" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <MajorUpgrade DowngradeErrorMessage="已安装较新的 nngGram。请使用相同或更高版本的安装程序。" Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes" />
+    <Condition Message="nngGram 需要 64 位 Windows。">Installed OR VersionNT64</Condition>
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <!-- The app must finish its own TDLib close; an installer must not force-kill it. -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+    <Property Id="REBOOT" Value="ReallySuppress" />
+    <Property Id="INSTALLFOLDER" Secure="yes">
+      <RegistrySearch Id="ExistingInstallFolder" Root="HKCU" Key="Software\nngGram\Installer" Name="InstallFolder" Type="raw" Win64="yes" />
+    </Property>
+    <Property Id="DATAFOLDER" Secure="yes" />
+    <Property Id="NNGGRAM_EXISTING_CONFIG" Secure="yes">
+      <DirectorySearch Id="ExistingConfigDirectory" Path="[LocalAppDataFolder]nngGram" Depth="0">
+        <FileSearch Id="ExistingConfiguration" Name="tdlib.properties" />
+      </DirectorySearch>
+    </Property>
+    <Property Id="CREATE_START_MENU" Value="1" />
+    <Property Id="CREATE_DESKTOP" Value="1" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="启动 nngGram" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="程序已安装。卸载或升级会保留你的账号、媒体和本地设置。" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <!-- No components own these data folders. Uninstall must never remove them. -->
+        <Directory Id="NngGramConfigFolder" Name="nngGram">
+          <Directory Id="DATAFOLDER" Name="data" />
+        </Directory>
+        <Directory Id="UserProgramsFolder" Name="Programs">
+          <Directory Id="INSTALLFOLDER" Name="nngGram">
+            <Component Id="InstallLocation" Guid="{02A8FF5E-3B2B-48AE-8647-93801536D397}" Win64="yes">
+              <RegistryValue Root="HKCU" Key="Software\nngGram\Installer" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+              <RemoveFolder Id="RemoveInstallFolderWhenEmpty" On="uninstall" />
+            </Component>
+            <Directory Id="InstallerLicenseFolder" Name="installer-licenses">
+              <Component Id="InstallerLicenseSources" Guid="{B28980DA-A41D-4DCC-B712-781F40EE1EB0}" Win64="yes">
+                <File Id="InstallerUiSource" Source="$(var.InstallerSources)\NngGramUI.wxs" />
+                <File Id="InstallerWixLicense" Source="$(var.InstallerSources)\WiX-LICENSE.txt" />
+                <File Id="InstallerNotice" Source="$(var.InstallerSources)\NOTICE.txt" />
+                <RegistryValue Root="HKCU" Key="Software\nngGram\Installer" Name="LicenseSources" Type="integer" Value="1" KeyPath="yes" />
+                <RemoveFolder Id="RemoveInstallerLicensesWhenEmpty" On="uninstall" />
+              </Component>
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="nngGram">
+          <Component Id="StartMenuShortcut" Guid="{02D3A5FA-15CF-4D71-8104-57AB6505357E}" Win64="yes">
+            <Condition>CREATE_START_MENU = "1"</Condition>
+            <Shortcut Id="StartMenuLaunch" Name="nngGram" Target="[#MainExecutable]" WorkingDirectory="INSTALLFOLDER" />
+            <RegistryValue Root="HKCU" Key="Software\nngGram\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+            <RemoveFolder Id="RemoveStartMenuWhenEmpty" On="uninstall" />
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="DesktopFolder">
+        <Component Id="DesktopShortcut" Guid="{B67703B5-43F2-4D55-99DF-F563B280FD03}" Win64="yes">
+          <Condition>CREATE_DESKTOP = "1"</Condition>
+          <Shortcut Id="DesktopLaunch" Name="nngGram" Target="[#MainExecutable]" WorkingDirectory="INSTALLFOLDER" />
+          <RegistryValue Root="HKCU" Key="Software\nngGram\Installer" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </Directory>
+    <Feature Id="Complete" Title="nngGram" Level="1" Absent="disallow">
+      <ComponentGroupRef Id="ApplicationPayload" />
+      <ComponentRef Id="InstallLocation" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="InstallerLicenseSources" />
+    </Feature>
+    <!-- Only the explicit finished-page checkbox launches; silent installs never launch. -->
+    <CustomAction Id="LaunchApplication" FileKey="MainExecutable" ExeCommand="" Execute="immediate" Impersonate="yes" Return="asyncNoWait" />
+    <!-- App helper validates the paths and uses CREATE_NEW; an existing config always wins.
+         Append a dot so a directory's trailing backslash never escapes its closing quote. -->
+    <CustomAction Id="ConfigureInitialDataDirectory" FileKey="MainExecutable"
+                  ExeCommand="--configure-installation &quot;[DATAFOLDER].&quot; &quot;[INSTALLFOLDER].&quot;"
+                  Execute="deferred" Impersonate="yes" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="ConfigureInitialDataDirectory" After="InstallFiles">NOT Installed AND NOT NNGGRAM_EXISTING_CONFIG AND NOT (REMOVE = "ALL")</Custom>
+    </InstallExecuteSequence>
+    <UIRef Id="NngGramUI" />
+  </Product>
+</Wix>

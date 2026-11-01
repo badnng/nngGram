@@ -1,0 +1,12 @@
+nngGram installer UI
+
+NngGramUI.wxs adapts the navigation in WiX 3.11.2 WixUI_InstallDir.wxs:
+https://github.com/wixtoolset/wix3/blob/wix3112rtm/src/ext/UIExtension/wixlib/WixUI_InstallDir.wxs
+Copyright (c) .NET Foundation and contributors.
+NngGramUI.wxs and this contribution to that file are distributed under the Microsoft Reciprocal License.
+The complete UI source and license accompany the installed program in installer-licenses/.
+
+Telegram Desktop's installer and intro were consulted as behavior references at revision
+a7f453612f4896ac04d0007a36ab0d377e5bcbcf. No Telegram installer code, product identity,
+artwork, signature, update mechanism or account-data deletion routine is included here.
+Telegram Desktop is distributed under GPL v3; see https://github.com/telegramdesktop/tdesktop/blob/a7f453612f4896ac04d0007a36ab0d377e5bcbcf/LICENSE.

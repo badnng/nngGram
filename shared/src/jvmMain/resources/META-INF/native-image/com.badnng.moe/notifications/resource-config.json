@@ -1,0 +1,7 @@
+{"resources":{"includes":[
+  {"pattern":"\\Qtelegram-sounds/msg_incoming.s16le\\E"},
+  {"pattern":"\\Qtelegram-sounds/msg_incoming.mp3\\E"},
+  {"pattern":"\\Qtelegram-sounds/LEGAL\\E"},
+  {"pattern":"\\Qtelegram-sounds/LICENSE\\E"},
+  {"pattern":"\\Qtelegram-sounds/SOURCE.md\\E"}
+]}}
