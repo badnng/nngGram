@@ -18,10 +18,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('secrets.', checks)
         self.assertNotIn('pull_request_target', text)
         self.assertIn("github.repository == vars.DISTRIBUTION_REPOSITORY", text)
-        self.assertIn('-RequireTelegramApi', text)
-        self.assertNotIn('contents: write', text)
+        native = text.split('  native:')[1].split('  release:')[0]
+        release = text.split('  release:')[1].split('  telegram:')[0]
+        self.assertIn('RequireTelegramApi = $true', native)
+        self.assertNotIn('contents: write', checks + native)
+        self.assertEqual(1, text.count('contents: write'))
+        self.assertIn('contents: write', release)
+        self.assertIn("github.event_name != 'pull_request'", native)
+        self.assertIn('github.repository == vars.DISTRIBUTION_REPOSITORY', native)
+        self.assertIn("github.ref_type == 'tag'", release)
+        self.assertIn('github.repository == vars.DISTRIBUTION_REPOSITORY', release)
         self.assertIn('compression-level: 0', text)
         self.assertIn('queue: max', text)
+
+    def test_quick_job_does_not_depend_on_full_jvm_job_and_tag_reuses_its_packages(self):
+        text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        native = text.split('  native:')[1].split('  release:')[0]
+        release = text.split('  release:')[1].split('  telegram:')[0]
+        self.assertIn("tags: ['v*']", text)
+        self.assertIn('needs: plan', native)
+        self.assertNotIn('needs: checks', native)
+        self.assertIn("RunTests = ($env:BUILD_MODE -eq 'release')", native)
+        self.assertIn('Verify built EXE using offline native diagnostics', native)
+        self.assertIn('AppVersion = $env:APP_VERSION', native)
+        self.assertIn('-Version $env:APP_VERSION', native)
+        self.assertIn('needs: [plan, native]', release)
+        self.assertIn('needs.native.outputs.artifact_name', release)
+        self.assertNotIn('build-desktop-native.ps1', release)
+        self.assertIn('release_ci.py', release)
 
     def test_tdlib_dependency_retention_precedes_application_tests(self):
         action = (ROOT / '.github/actions/prepare-native/action.yml').read_text(encoding='utf-8')

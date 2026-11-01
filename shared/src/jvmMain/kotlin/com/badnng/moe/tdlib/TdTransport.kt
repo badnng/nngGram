@@ -264,7 +264,7 @@ internal class OfficialTdSession(
             systemLanguageCode = Locale.getDefault().language.ifBlank { "en" }
             deviceModel = com.badnng.moe.settingsEffectiveDeviceName(config.deviceModel)
             systemVersion = "${System.getProperty("os.name")} ${System.getProperty("os.version")}"
-            applicationVersion = "nngGram 0.1.0"
+            applicationVersion = "nngGram ${BundledTelegramApi.VERSION}"
         }
         val remaining = AtomicInteger(2)
         val completed = AtomicBoolean()

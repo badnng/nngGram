@@ -139,7 +139,7 @@ proxy_password=
 
 ## GitHub Actions
 
-[Windows CI](.github/workflows/ci.yml) 支持 push、PR 和手动运行。PR、fork 和普通分支只做不带正式凭据的构建检查。原生分发须由仓库管理员设置：
+[Windows CI](.github/workflows/ci.yml) 支持 commit 快速打包、tag 正式发布及手动运行。原生分发须由仓库管理员设置：
 
 | 类型 | 名称 | 用途 |
 | --- | --- | --- |
@@ -147,7 +147,24 @@ proxy_password=
 | Repository Secret | `NNGGRAM_API_ID` | 自己申请的 Telegram API ID |
 | Repository Secret | `NNGGRAM_API_HASH` | 与之配套的 API Hash |
 
-只有匹配仓库的默认分支或 `dev` 的非 PR 构建会注入正式应用身份。流水线先测试，再构建 Native Image，运行生成 EXE 的 TDLib、平台和媒体离线检查，最后生成 MSI、便携 ZIP、校验和及体积报告。Actions 产物保存 14 天，不自动创建 Release。源码中不公开真实凭据；客户端二进制内的应用身份可被提取，不能当作服务端秘密。
+| 入口 | 行为 |
+| --- | --- |
+| 默认分支（本仓库 `main`）或 `dev` 的 commit | 快速构建 Native Image、MSI 和 ZIP，跳过全量 JVM 测试；保留依赖校验、脚本/安装器检查和生成 EXE 的离线烟雾测试；只上传 Actions 产物 |
+| `vMAJOR.MINOR.PATCH` tag，例如 `v0.2.0` | 执行一次完整 JVM、native、media 测试，构建并检查 EXE，随后自动发布包含 MSI/ZIP/校验和的 GitHub Release |
+| PR、fork、其他分支 | 不注入正式 API，执行编译和 JVM 检查，不发布 |
+
+日常版本号由 `gradle.properties` 中的 `nnggramVersion` 管理。tag 构建以 tag 数字版本覆盖该值，同步到原生程序版本、TDLib 客户端版本、MSI/ZIP 文件名和构建信息。MSI 要求前两段不超过 255、第三段不超过 65535；当前发布入口只接受三段数字的稳定版 tag。
+
+正式发布步骤先创建草稿、上传全部附件并核对 SHA256，完整通过才公开。已发布 tag 不会覆盖；发布 job 失败可重跑，复用同一份产物和匹配的草稿。不要移动已发布的 tag。发布脚本不强制改写仓库的 Latest 指向，避免旧版本任务覆盖新版本选择。
+
+例如完成版本更新提交后，可在本机执行：
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+只有白名单仓库的上述分发入口会注入正式应用身份。Actions 安装包及测试报告保存 14 天，正式版本附件保存在 GitHub Releases。源码中不公开真实凭据；客户端二进制内的应用身份可被提取，不能当作服务端秘密。
 
 可选 Telegram 分发沿用自动回退：设 `TELEGRAM_ENABLED=true`，提供 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID` Secrets。可选的 `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` 用于临时 Bot API 服务，和桌面应用身份分开。任一为空时跳过本地服务；50,000,000 字节以内发附件，超限发送 Actions 下载链接并提示需要登录 GitHub。未启用时不发送通知。
 

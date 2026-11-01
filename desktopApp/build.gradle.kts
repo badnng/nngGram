@@ -59,7 +59,7 @@ nucleus {
             modules("java.instrument", "jdk.unsupported")
             targetFormats(TargetFormat.Msi)
             packageName = "nngGram"
-            packageVersion = "0.1.0"
+            packageVersion = providers.gradleProperty("nnggramVersion").get()
         }
     }
 }

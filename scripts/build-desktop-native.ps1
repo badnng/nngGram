@@ -4,6 +4,7 @@ param(
     [ValidatePattern('^[a-zA-Z0-9-]+$')][string]$BuildName = 'native-desktop',
     [ValidatePattern('^[1-9][0-9]*[gGmM]$')][string]$NativeImageHeap = '4g',
     [ValidateRange(1, 32)][int]$NativeImageThreads = 2,
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$AppVersion,
     [switch]$RunTests,
     [switch]$RequireTelegramApi
 )
@@ -64,6 +65,7 @@ $arguments = $tasks + @(
 )
 if ($RunTests) { $arguments += @('-PnativeSmoke', '-PnativeAcceptance', '-PmediaSmoke') }
 if ($RequireTelegramApi) { $arguments += '-PrequireTelegramApi=true' }
+if ($AppVersion) { $arguments += "-PnnggramVersion=$AppVersion" }
 if ($MsvcRoot) { $arguments += "-PwindowsRc=$(Join-Path $sdkBin 'rc.exe')" }
 Push-Location $workspace
 try {

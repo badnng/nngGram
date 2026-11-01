@@ -2,6 +2,7 @@ name: Windows CI
 on:
   push:
     branches: ['**', '!dependabot/**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -10,8 +11,27 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  plan:
+    name: Select commit packaging or tag release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      version: ${{ steps.mode.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Resolve trusted build mode and numeric version
+        id: mode
+        env:
+          DISTRIBUTION_REPOSITORY: ${{ vars.DISTRIBUTION_REPOSITORY }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 -B .github/scripts/build_mode.py
   checks:
     name: Secretless Windows JVM checks
+    needs: plan
+    if: needs.plan.outputs.mode == 'checks'
     runs-on: windows-2022
     timeout-minutes: 150
     steps:
@@ -56,12 +76,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   native:
-    name: Trusted Windows native distribution
-    needs: checks
+    name: ${{ needs.plan.outputs.mode == 'release' && 'Test and build official release' || 'Quick commit package' }}
+    needs: plan
     if: >-
-      vars.DISTRIBUTION_REPOSITORY != '' && github.repository == vars.DISTRIBUTION_REPOSITORY &&
       github.event_name != 'pull_request' &&
-      (github.ref_name == github.event.repository.default_branch || github.ref == 'refs/heads/dev')
+      vars.DISTRIBUTION_REPOSITORY != '' && github.repository == vars.DISTRIBUTION_REPOSITORY &&
+      (github.ref_name == github.event.repository.default_branch || github.ref == 'refs/heads/dev' ||
+       (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))) &&
+      (needs.plan.outputs.mode == 'quick' || needs.plan.outputs.mode == 'release')
     runs-on: windows-2022
     timeout-minutes: 180
     outputs:
@@ -96,12 +118,42 @@ jobs:
       - name: Prepare verified FFmpeg
         shell: pwsh
         run: ./.github/scripts/prepare-media-ci.ps1
+      - name: Validate CI scripts and installer contracts
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s .github/scripts -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { throw 'CI script tests failed.' }
+          ./scripts/test-windows-installer.ps1
       - name: Build native application with builder-owned Telegram identity
         shell: pwsh
         env:
           NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
           NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
-        run: ./scripts/build-desktop-native.ps1 -GraalVm $env:GRAALVM_HOME -BuildName ci-native -NativeImageHeap 4g -NativeImageThreads 2 -RequireTelegramApi -RunTests
+          BUILD_MODE: ${{ needs.plan.outputs.mode }}
+          APP_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          $buildOptions = @{
+            GraalVm = $env:GRAALVM_HOME
+            BuildName = 'ci-native'
+            NativeImageHeap = '4g'
+            NativeImageThreads = 2
+            RequireTelegramApi = $true
+            AppVersion = $env:APP_VERSION
+            RunTests = ($env:BUILD_MODE -eq 'release')
+          }
+          ./scripts/build-desktop-native.ps1 @buildOptions
+      - name: Retain official-release JVM test results
+        if: always() && needs.plan.outputs.mode == 'release'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-release-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            shared/build/ci-native/test-results/jvmTest/
+            shared/build/ci-native/reports/tests/jvmTest/
+            desktopApp/build/ci-native/test-results/test/
+            desktopApp/build/ci-native/reports/tests/test/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Verify built EXE using offline native diagnostics
         shell: pwsh
         run: |
@@ -114,11 +166,14 @@ jobs:
       - name: Package complete native application and installer
         id: package
         shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           ./.github/scripts/prepare-wix-ci.ps1
-          ./scripts/package-desktop.ps1 -AppDirectory desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram -Version 0.1.0 -BuildName ci-package -WixDirectory "$env:RUNNER_TEMP/wix311"
+          ./scripts/package-desktop.ps1 -AppDirectory desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram -Version $env:APP_VERSION -BuildName ci-package -WixDirectory "$env:RUNNER_TEMP/wix311"
           if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
           python -B .github/scripts/package_metadata.py build/ci-package
+          if ($LASTEXITCODE -ne 0) { throw 'Package metadata failed.' }
           "artifact_name=nngGram-windows-x64-${{ github.run_id }}-${{ github.run_attempt }}" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         id: upload
@@ -133,14 +188,41 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+  release:
+    name: Publish verified tag artifacts
+    needs: [plan, native]
+    if: >-
+      needs.plan.outputs.mode == 'release' && github.ref_type == 'tag' &&
+      github.event_name != 'pull_request' &&
+      vars.DISTRIBUTION_REPOSITORY != '' && github.repository == vars.DISTRIBUTION_REPOSITORY
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    concurrency:
+      group: official-release-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.native.outputs.artifact_name }}
+          path: ${{ runner.temp }}/release-dist
+      - name: Create draft, verify uploaded assets, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B .github/scripts/release_ci.py "$RUNNER_TEMP/release-dist"
   telegram:
     name: Send CI ZIP to Telegram
-    needs: native
+    needs: [plan, native]
     # 在仓库 Variables 中显式启用；PR、fork 和其它分支不会向频道发消息。
     if: >-
-      vars.TELEGRAM_ENABLED == 'true' &&
-      vars.DISTRIBUTION_REPOSITORY != '' && github.repository == vars.DISTRIBUTION_REPOSITORY &&
+      vars.TELEGRAM_ENABLED == 'true' && needs.plan.outputs.mode == 'quick' &&
       github.event_name != 'pull_request' &&
+      vars.DISTRIBUTION_REPOSITORY != '' && github.repository == vars.DISTRIBUTION_REPOSITORY &&
       (github.ref_name == github.event.repository.default_branch || github.ref == 'refs/heads/dev')
     runs-on: ubuntu-24.04
     timeout-minutes: 75

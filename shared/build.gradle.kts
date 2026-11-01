@@ -14,11 +14,16 @@ val generateTelegramApi by tasks.registering {
     val envId = providers.environmentVariable("NNGGRAM_API_ID")
     val envHash = providers.environmentVariable("NNGGRAM_API_HASH")
     val required = providers.gradleProperty("requireTelegramApi").map { it.toBoolean() }.orElse(false)
+    val appVersion = providers.gradleProperty("nnggramVersion")
     outputs.dir(telegramApiSources)
     // Do not put secrets into task input fingerprints or share generated source through caches.
     outputs.upToDateWhen { false }
     outputs.cacheIf { false }
     doLast {
+        val version = appVersion.get()
+        check(version.matches(Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)"))) {
+            "nnggramVersion must be a numeric MAJOR.MINOR.PATCH version."
+        }
         val local = Properties()
         if (credentialsFile.asFile.isFile) credentialsFile.asFile.reader(Charsets.UTF_8).use(local::load)
         val useEnvironment = envId.isPresent || envHash.isPresent
@@ -33,7 +38,8 @@ val generateTelegramApi by tasks.registering {
         target.parentFile.mkdirs()
         val source = "package com.badnng.moe.tdlib\n\ninternal object BundledTelegramApi {\n" +
             "    const val ID: String = \"${if (present) id.toInt().toString() else ""}\"\n" +
-            "    const val HASH: String = \"$hash\"\n}\n"
+            "    const val HASH: String = \"$hash\"\n" +
+            "    const val VERSION: String = \"$version\"\n}\n"
         if (!target.isFile || target.readText() != source) target.writeText(source)
     }
 }
