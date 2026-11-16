@@ -36,5 +36,7 @@ internal suspend fun pickNativeDirectory(owner: Long?): String? = FileKit.openDi
 
 private fun nativeDialogSettings(title: String, owner: Long?) = FileKitDialogSettings(
     title = title,
-    parent = owner?.takeIf { it != 0L }?.let(FileKitDialogParent::windows),
+    parent = if (com.badnng.moe.platform.DesktopPlatform.current.isWindows) {
+        owner?.takeIf { it != 0L }?.let(FileKitDialogParent::windows)
+    } else null,
 )

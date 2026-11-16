@@ -20,11 +20,18 @@ class GenerateTdlibNativeMetadata {
     private static final String PACKAGE = "org.drinkless.tdlib.";
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 1 || args.length > 2) throw new IllegalArgumentException("Expected repository root and optional --check");
+        if (args.length < 1) throw new IllegalArgumentException("Expected repository root and optional flags");
         Path root = Path.of(args[0]).toAbsolutePath().normalize();
-        boolean check = args.length == 2 && args[1].equals("--check");
-        if (args.length == 2 && !check) throw new IllegalArgumentException("Unknown metadata generation option");
-        Path binding = root.resolve("native/windows-x64/tdlib.jar");
+        boolean check = false;
+        String bindingRelative = null;
+        String outputDirectory = null;
+        for (int i = 1; i < args.length; i++) {
+            if (args[i].equals("--check")) { check = true; }
+            else if (args[i].startsWith("--binding=")) { bindingRelative = args[i].substring("--binding=".length()); }
+            else if (args[i].startsWith("--output=")) { outputDirectory = args[i].substring("--output=".length()); }
+            else throw new IllegalArgumentException("Unknown option: " + args[i]);
+        }
+        Path binding = root.resolve(bindingRelative != null ? bindingRelative : "native/windows-x64/tdlib.jar");
         Properties pin = new Properties();
         try (InputStream input = Files.newInputStream(root.resolve("native/tdlib-source.properties"))) { pin.load(input); }
         Properties provenance = new Properties();
@@ -88,7 +95,8 @@ class GenerateTdlibNativeMetadata {
             entries.add("  {\"name\":" + quote("java.lang." + boxed[i]) + ",\"methods\":[" + method(accessors[i], List.of()) + "]}");
         }
         entries.add("  {\"name\":\"java.lang.String\"}");
-        Path resources = root.resolve("shared/src/jvmMain/resources");
+        Path resources = outputDirectory != null ? Path.of(outputDirectory).toAbsolutePath().normalize()
+            : root.resolve("shared/src/jvmMain/resources");
         Path metadata = resources.resolve("META-INF/native-image/com.badnng.moe/tdlib");
         write(metadata.resolve("jni-config.json"), "[\n" + String.join(",\n", entries) + "\n]\n", check);
         // Clear the old duplicate reflection registry during metadata regeneration.

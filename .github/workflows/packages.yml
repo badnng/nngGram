@@ -1,0 +1,233 @@
+name: Desktop packages
+# Builds one installer per platform with the builder-owned Telegram identity from the
+# NNGGRAM_API_ID / NNGGRAM_API_HASH repository Secrets. Branch pushes keep each installer
+# as a directly downloadable artifact; a vMAJOR.MINOR.PATCH tag also attaches them to a release.
+on:
+  push:
+    branches: [main, dev, 'feature/**']
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+jobs:
+  plan:
+    name: Resolve version and identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Require the repository's Telegram application identity
+        env:
+          NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
+          NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
+        run: |
+          case "$NNGGRAM_API_ID" in ''|*[!0-9]*) echo 'Configure the NNGGRAM_API_ID repository Secret.' >&2; exit 1 ;; esac
+          printf '%s' "$NNGGRAM_API_HASH" | grep -Eq '^[a-fA-F0-9]{32}$' || { echo 'Configure the NNGGRAM_API_HASH repository Secret.' >&2; exit 1; }
+      - name: Use the tag version for releases and gradle.properties otherwise
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}
+          else version=$(sed -n 's/^nnggramVersion=//p' gradle.properties); fi
+          printf '%s' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' || { echo "Unsupported version: $version" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS ${{ matrix.arch }} DMG
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, arch: arm64 }
+          - { runner: macos-15-intel, arch: x64 }
+    env:
+      PACKAGE: nngGram-${{ needs.plan.outputs.version }}-macos-${{ matrix.arch }}.dmg
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Install native build tools and FFmpeg
+        run: brew install ninja gperf openssl@3 ffmpeg
+      - name: Restore pinned TDLib and media bundle
+        id: native
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: native/macos-${{ matrix.arch }}
+          key: native-${{ matrix.runner }}-${{ hashFiles('native/tdlib-source.properties', 'scripts/build-tdlib.sh', 'scripts/bundle-macos-libraries.py', 'scripts/prepare-media-macos.sh') }}
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
+      - name: Build TDLib if needed, then the signed app image and DMG
+        env:
+          NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
+          NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
+          ORG_GRADLE_PROJECT_nnggramVersion: ${{ needs.plan.outputs.version }}
+          JOBS: '3'
+        run: sh scripts/build-macos.sh --release
+      - name: Name the installer
+        run: |
+          set -- desktopApp/build/compose/binaries/main/dmg/*.dmg
+          test "$#" -eq 1 && test -f "$1" || { echo 'Expected exactly one DMG.' >&2; exit 1; }
+          mkdir -p dist && cp "$1" "dist/$PACKAGE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: dist/${{ env.PACKAGE }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach the installer to the tag release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "nngGram ${GITHUB_REF_NAME#v}" --generate-notes || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "dist/$PACKAGE" --clobber
+
+  linux:
+    name: Linux x64 DEB
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      PACKAGE: nngGram-${{ needs.plan.outputs.version }}-linux-x64.deb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Install native build and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gperf g++ libssl-dev zlib1g-dev fakeroot
+      - name: Restore pinned TDLib bundle
+        id: native
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: native/linux-x64
+          key: native-ubuntu-24.04-x64-${{ hashFiles('native/tdlib-source.properties', 'scripts/build-tdlib.sh') }}
+      - name: Build pinned TDLib on cache miss
+        if: steps.native.outputs.cache-hit != 'true'
+        env:
+          JOBS: '4'
+        run: sh scripts/build-tdlib.sh
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
+      - name: Build the DEB with the builder-owned Telegram identity
+        env:
+          NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
+          NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
+          ORG_GRADLE_PROJECT_nnggramVersion: ${{ needs.plan.outputs.version }}
+        run: ./gradlew :desktopApp:packageDeb -PrequireTelegramApi=true --no-configuration-cache --console=plain --max-workers=2
+      - name: Name the installer
+        run: |
+          package=$(find desktopApp/build/compose/binaries -name '*.deb' -type f)
+          test -n "$package" && test "$(printf '%s\n' "$package" | wc -l)" -eq 1 || { echo 'Expected exactly one DEB.' >&2; exit 1; }
+          mkdir -p dist && cp "$package" "dist/$PACKAGE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: dist/${{ env.PACKAGE }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach the installer to the tag release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "nngGram ${GITHUB_REF_NAME#v}" --generate-notes || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "dist/$PACKAGE" --clobber
+
+  windows:
+    name: Windows x64 MSI
+    needs: plan
+    runs-on: windows-2022
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    env:
+      PACKAGE: nngGram-${{ needs.plan.outputs.version }}-windows-x64.msi
+      APP_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Isolate Gradle user home
+        shell: pwsh
+        run: '"GRADLE_USER_HOME=$env:RUNNER_TEMP/gradle-native" >> $env:GITHUB_ENV'
+      - uses: ./.github/actions/prepare-native
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-disabled: true
+      - uses: graalvm/setup-graalvm@f70bc8032f90a104502824a54bcb94b6f01715bc # v1
+        with:
+          java-version: '25.0.2'
+          distribution: graalvm-community
+          github-token: ${{ github.token }}
+          set-java-home: false
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: x64
+      - name: Prepare verified FFmpeg and WiX
+        shell: pwsh
+        run: |
+          ./.github/scripts/prepare-media-ci.ps1
+          ./.github/scripts/prepare-wix-ci.ps1
+      - name: Build native application with builder-owned Telegram identity
+        shell: pwsh
+        env:
+          NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
+          NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
+        run: |
+          $buildOptions = @{
+            GraalVm = $env:GRAALVM_HOME
+            BuildName = 'ci-native'
+            NativeImageHeap = '8g'
+            NativeImageThreads = 2
+            RequireTelegramApi = $true
+            AppVersion = $env:APP_VERSION
+          }
+          ./scripts/build-desktop-native.ps1 @buildOptions
+      - name: Package the MSI installer
+        shell: pwsh
+        run: |
+          ./scripts/package-desktop.ps1 -AppDirectory desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram -Version $env:APP_VERSION -BuildName ci-package -WixDirectory "$env:RUNNER_TEMP/wix311"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
+          $installers = @(Get-ChildItem build/ci-package -Filter *.msi)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one MSI.' }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item -LiteralPath $installers[0].FullName -Destination "dist/$env:PACKAGE"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          path: dist/${{ env.PACKAGE }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach the installer to the tag release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "nngGram ${GITHUB_REF_NAME#v}" --generate-notes || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "dist/$PACKAGE" --clobber

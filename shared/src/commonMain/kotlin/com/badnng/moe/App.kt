@@ -71,6 +71,7 @@ fun App(
     profileEmojiArtwork: com.badnng.moe.media.ProfileEmojiArtworkProvider? = null,
     profileStickerAvatarArtwork: com.badnng.moe.settings.ProfileStickerAvatarArtworkProvider? = null,
     onAppActivity: () -> Unit = {},
+    setupActions: SetupActions? = null,
 ) {
     val suppliedPreferencesAccess = LocalSettingsPreferencesAccess.current
     val preferencesAccess = suppliedPreferencesAccess ?: DeviceSettingsPreferencesAccess
@@ -126,6 +127,7 @@ fun App(
     var diagnostics by rememberSaveable { mutableStateOf(false) }
     var preview by rememberSaveable { mutableStateOf(false) }
     var welcomeAcknowledged by rememberSaveable { mutableStateOf(false) }
+    var setupGuide by remember { mutableStateOf<SetupSnapshot?>(null) }
     val settingsVisibility = remember(runtime?.generation) { ThemeOwnedFlag() }
     var showSettings by settingsVisibility::value
     val settingsState = remember(runtime?.generation) { SettingsWorkspaceState() }
@@ -284,9 +286,14 @@ fun App(
                 !live.loginInitialPhoneMode && live.status.authorization == AuthorizationPhase.WAITING_LOGIN
             val welcomeState = nativeWelcome ?: if (introStart) AppWelcomeState(generation = live!!.generation,
                 active = !exitRequested) else null
+            val signedIn = live?.chats?.enabled == true && live.status.authorization == AuthorizationPhase.READY
+            val openSetup: (() -> Unit)? = setupActions?.takeIf { live != null && !signedIn && !exitRequested }?.let { actions ->
+                { setupGuide = actions.load() ?: SetupSnapshot() }
+            }
             val route = when {
-                live?.chats?.enabled == true && live.status.authorization == AuthorizationPhase.READY && !exitRequested ->
+                signedIn && !exitRequested ->
                     if (showSettings) "settings" else "chat"
+                live != null && !exitRequested && setupGuide != null && setupActions != null -> "setup"
                 live != null && !exitRequested && welcomeState != null -> "welcome"
                 live != null && !exitRequested && live.status.authorization in setOf(AuthorizationPhase.WAITING_LOGIN,
                     AuthorizationPhase.WAITING_CODE, AuthorizationPhase.WAITING_PASSWORD, AuthorizationPhase.OTHER_STEP) -> "auth"
@@ -392,9 +399,21 @@ fun App(
                         themeActive = route == "settings")
                     if (diagnostics) EventHistory(live)
                 }
+            } else if (chatPage == "setup") {
+                val guide = setupGuide
+                if (guide != null && setupActions != null) SetupGuideScreen(guide, setupActions, active = route == "setup",
+                    onCancel = { setupGuide = null },
+                    onDone = {
+                        if (route == "setup" && !exitRequested) {
+                            setupGuide = null
+                            welcomeAcknowledged = true
+                            // The saved file is read only while a client starts.
+                            if (live?.clientActive == true) onRestart() else onStart()
+                        }
+                    })
             } else if (chatPage == "welcome") {
                 welcomeState?.let { welcome ->
-                    AppWelcomeScreen(welcome.copy(active = welcome.active && route == "welcome"), onContinue = {
+                    AppWelcomeScreen(welcome.copy(active = welcome.active && route == "welcome"), onSetup = openSetup, onContinue = {
                         if (route == "welcome" && !exitRequested) {
                             welcomeAcknowledged = true
                             if (!introStart) {
@@ -404,8 +423,16 @@ fun App(
                     })
                 }
             } else if (chatPage == "auth" && live != null) {
-                LoginPanel(live, exitRequested, onSubmitLogin, onCancelQr,
-                    initialPhoneMode = live.loginInitialPhoneMode, modifier = Modifier.fillMaxSize(), active = route == "auth")
+                Box(Modifier.fillMaxSize()) {
+                    LoginPanel(live, exitRequested, onSubmitLogin, onCancelQr,
+                        initialPhoneMode = live.loginInitialPhoneMode, modifier = Modifier.fillMaxSize(), active = route == "auth")
+                    // A login page that cannot reach Telegram otherwise offers no way to change the connection.
+                    if (openSetup != null && live.status.connection != ConnectionPhase.READY && route == "auth") {
+                        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)) {
+                            Choice("连接不上？打开连接引导", false, openSetup)
+                        }
+                    }
+                }
             } else {
             val visibilityRevision = settingsVisibility.revision
             val diagnosticThemeOwner = { currentThemeRoute.value == "runtime" && !currentThemeBlocked.value &&
