@@ -105,7 +105,7 @@ jobs:
             cp "$1" "dist/$PACKAGE"
             extracted=$(mktemp -d "$RUNNER_TEMP/nnggram-deb.XXXXXX")
             dpkg-deb -x "$1" "$extracted"
-            launcher=$(find "$extracted" -type f -path '*/bin/nnggram')
+            launcher="$extracted/opt/nnggram/bin/nngGram"
             test -x "$launcher"
             "$launcher" --tdlib-native-smoke "$report"
           fi
