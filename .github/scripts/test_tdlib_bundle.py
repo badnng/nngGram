@@ -173,6 +173,13 @@ class BundleTests(unittest.TestCase):
             self.assertIn('bundle/tdjni.dll', archive.namelist())
             self.assertFalse(any('media' in name or 'local.properties' in name for name in archive.namelist()))
         self.assertIn(bundle.digest(artifact), (artifact.parent / 'SHA256SUMS.txt').read_text())
+        imported = self.root / 'imported'
+        with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
+            bundle.extract_pinned_archive(artifact, '0' * 64, imported)
+        self.assertFalse(imported.exists())
+        bundle.extract_pinned_archive(artifact, bundle.digest(artifact), imported)
+        self.assertEqual(bundle.verify_cache(self.cache, self.expected).keys(),
+                         bundle.verify_cache(imported, self.expected).keys())
 
     def test_tampered_library_fails_before_restore_writes_anything(self):
         self.export()

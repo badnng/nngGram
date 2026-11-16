@@ -22,8 +22,7 @@ LICENSE_GROUPS = LICENSE_LAYOUT['groups']
 LICENSE_PACKAGES = {package for group in LICENSE_GROUPS for alternative in group['alternatives'] for package in alternative}
 BUILD_INPUTS = ('native/tdlib-source.properties', 'scripts/build-tdlib.ps1',
                 'native/tdlib-license-layout.json', 'scripts/TdlibLicenses.psm1',
-                'scripts/GenerateTdlibNativeMetadata.java', '.github/scripts/tdlib_bundle.py',
-                '.github/actions/prepare-native/action.yml')
+                'scripts/GenerateTdlibNativeMetadata.java')
 
 
 def digest(path):
@@ -54,9 +53,13 @@ def run(*arguments):
     return subprocess.check_output([str(x) for x in arguments], text=True, encoding='utf-8', stderr=subprocess.STDOUT).strip()
 
 
-def build_recipe(root):
+def build_recipe(root, newline=b'\n'):
+    def input_hash(name):
+        content = (root / name).read_bytes().replace(b'\r\n', b'\n').replace(b'\n', newline)
+        return hashlib.sha256(content).hexdigest()
+
     return {'sourceCommit': pin(root), 'architecture': 'x64',
-            'buildInputs': {name: digest(root / name) for name in BUILD_INPUTS}}
+            'buildInputs': {name: input_hash(name) for name in BUILD_INPUTS}}
 
 
 def fingerprint(value):
@@ -195,12 +198,18 @@ def verify_cache(cache, expected):
     return files
 
 
-def cached_identity(cache, recipe):
+def cached_identity(cache, recipe, legacy_inputs=None):
     inventory = regular_files(cache).get('bundle-inventory.json')
     if inventory is None:
         raise ValueError('Missing complete bundle inventory')
     saved = json.loads(inventory.read_text(encoding='utf-8')).get('identity')
-    if not isinstance(saved, dict) or saved.get('format') != 1 or any(saved.get(key) != value for key, value in recipe.items()):
+    if (not isinstance(saved, dict) or saved.get('format') != 1
+            or saved.get('sourceCommit') != recipe['sourceCommit'] or saved.get('architecture') != recipe['architecture']
+            or not isinstance(saved.get('buildInputs'), dict)):
+        raise ValueError('Cached dependency build recipe mismatch')
+    recorded = saved['buildInputs']
+    if any(name not in recorded or recorded[name] not in (value, (legacy_inputs or {}).get(name, value))
+           for name, value in recipe['buildInputs'].items()):
         raise ValueError('Cached dependency build recipe mismatch')
     provenance = {key: value for key, value in saved.items() if key != 'key'}
     if saved.get('key') != 'tdlib-windows-x64-v1-' + fingerprint(provenance):
@@ -230,15 +239,41 @@ def archive(cache, directory, expected):
     return output
 
 
+def extract_pinned_archive(path, expected_hash, cache):
+    if not re.fullmatch('[a-f0-9]{64}', expected_hash) or digest(path) != expected_hash:
+        raise ValueError('Pinned TDLib archive SHA-256 mismatch')
+    if cache.exists() and any(cache.iterdir()):
+        raise ValueError('Pinned TDLib archive destination must be empty')
+    with zipfile.ZipFile(path) as source:
+        entries = source.infolist()
+        names = {entry.filename for entry in entries}
+        if (len(entries) != len(names) or not 1 <= len(entries) <= 1024
+                or sum(entry.file_size for entry in entries) > 2_000_000_000
+                or 'bundle-inventory.json' not in names):
+            raise ValueError('Invalid TDLib archive inventory')
+        if any(entry.is_dir() or not 0 < entry.file_size <= 500_000_000 or
+               (entry.filename != 'bundle-inventory.json' and not
+                (entry.filename.startswith('bundle/') and allowed(entry.filename.removeprefix('bundle/'))))
+               for entry in entries):
+            raise ValueError('Unexpected TDLib archive entry')
+        for entry in entries:
+            destination = cache / entry.filename
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with source.open(entry) as stream, destination.open('xb') as output:
+                shutil.copyfileobj(stream, output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['cache-key', 'identity', 'export', 'verify', 'restore', 'restore-cached', 'archive'])
+    parser.add_argument('command', choices=['cache-key', 'identity', 'export', 'verify', 'restore', 'restore-cached', 'restore-archive', 'archive'])
     parser.add_argument('--root', type=Path, default=Path.cwd())
     parser.add_argument('--identity', type=Path)
     parser.add_argument('--msys', type=Path)
     parser.add_argument('--jdk', type=Path)
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--directory', type=Path)
+    parser.add_argument('--archive', type=Path)
+    parser.add_argument('--sha256')
     args = parser.parse_args()
     if args.command == 'cache-key':
         recipe = build_recipe(args.root)
@@ -258,8 +293,13 @@ def main():
                 output.write(f"cache_key={value['key']}\ncommit={value['sourceCommit']}\nfingerprint={value['key'][-16:]}\n")
         print(value['key'])
         return
-    if args.command == 'restore-cached':
-        value = cached_identity(args.cache, build_recipe(args.root))
+    if args.command in ('restore-cached', 'restore-archive'):
+        if args.command == 'restore-archive':
+            if args.archive is None or args.sha256 is None:
+                parser.error('restore-archive requires --archive and --sha256')
+            extract_pinned_archive(args.archive, args.sha256, args.cache)
+        legacy_inputs = build_recipe(args.root, b'\r\n')['buildInputs']
+        value = cached_identity(args.cache, build_recipe(args.root), legacy_inputs)
         restore(args.cache, args.directory, value)
         args.identity.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n', encoding='utf-8')
         return

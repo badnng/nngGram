@@ -31,9 +31,29 @@ runs:
       if: steps.cache.outputs.cache-hit == 'true'
       shell: pwsh
       run: python -B .github/scripts/tdlib_bundle.py restore-cached --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --cache "$env:RUNNER_TEMP/tdlib-bundle-cache" --directory native/windows-x64
+    # Reuse the verified dependency archive from the first integration build while GitHub retains it.
+    - name: Download the pinned Windows dependency archive
+      id: seed
+      if: >-
+        steps.cache.outputs.cache-hit != 'true' && github.repository == 'badnng/nngGram' &&
+        steps.recipe.outputs.cache_key == 'tdlib-windows-x64-recipe-v1-df080ab421d8f15c2e2de435cb740ead87c28701070797cc10c45db489867204'
+      continue-on-error: true
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        github-token: ${{ github.token }}
+        run-id: 43892804232
+        name: tdlib-windows-x64-9d92b49bc5d0d2e29fe518239af647a88f8680e6-b0f36c1edf16f50b-native-43892804232-1
+        path: ${{ runner.temp }}/tdlib-seed
+    - name: Verify and install the pinned archive
+      id: seed-bundle
+      if: steps.seed.outcome == 'success'
+      shell: pwsh
+      run: |
+        $archive = "$env:RUNNER_TEMP/tdlib-seed/tdlib-windows-x64-9d92b49bc5d0d2e29fe518239af647a88f8680e6-563039c63f1650b3.zip"
+        python -B .github/scripts/tdlib_bundle.py restore-archive --archive $archive --sha256 99e1bff21828e8de7aa5061259629bd8087a34fa8fb8572319ce648063d603dd --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --cache "$env:RUNNER_TEMP/tdlib-bundle-cache" --directory native/windows-x64
     - name: Install MSYS2 UCRT64 build tools on cache miss
       id: msys
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.cache.outputs.cache-hit != 'true' && steps.seed-bundle.outcome != 'success'
       uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
       with:
         location: ${{ runner.temp }}
@@ -44,15 +64,15 @@ runs:
           mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
           mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-zlib
     - name: Record the exact toolchain used to build the bundle
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.msys.outcome == 'success'
       shell: pwsh
       run: python -B .github/scripts/tdlib_bundle.py identity --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --msys '${{ steps.msys.outputs.msys2-location }}' --jdk $env:JAVA_HOME
     - name: Build pinned TDLib bundle on exact cache miss
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.msys.outcome == 'success'
       shell: pwsh
       run: ./scripts/build-tdlib.ps1 -MsysRoot '${{ steps.msys.outputs.msys2-location }}' -Jdk $env:JAVA_HOME -Jobs 2
     - name: Validate and stage the complete newly built dependency bundle
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.msys.outcome == 'success'
       shell: pwsh
       run: python -B .github/scripts/tdlib_bundle.py export --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --cache "$env:RUNNER_TEMP/tdlib-bundle-cache" --directory native/windows-x64
     # Save now, before application compilation/tests can fail. No post-job cache save dependency.
@@ -61,7 +81,7 @@ runs:
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ runner.temp }}/tdlib-bundle-cache
-        key: ${{ steps.identity.outputs.cache_key }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}
     - name: Create standalone verified TDLib dependency archive
       shell: pwsh
       run: python -B .github/scripts/tdlib_bundle.py archive --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --cache "$env:RUNNER_TEMP/tdlib-bundle-cache" --directory "$env:RUNNER_TEMP/tdlib-bundle-artifact"

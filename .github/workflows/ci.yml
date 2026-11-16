@@ -33,6 +33,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.mode == 'checks'
     runs-on: windows-2022
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -85,6 +88,9 @@ jobs:
        (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))) &&
       (needs.plan.outputs.mode == 'quick' || needs.plan.outputs.mode == 'release')
     runs-on: windows-2022
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: 180
     outputs:
       artifact_name: ${{ steps.package.outputs.artifact_name }}

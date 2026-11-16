@@ -67,6 +67,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('Reject any nonexact cache match', action)
         self.assertIn('retention-days: 90', action)
         self.assertLess(action.index('actions/cache/restore@'), action.index('msys2/setup-msys2@'))
+        save = action.split('uses: actions/cache/save@', 1)[1].split('- name:', 1)[0]
+        self.assertIn('key: ${{ steps.cache.outputs.cache-primary-key }}', save)
         self.assertLess(action.index('actions/cache/save@'), action.index('actions/upload-artifact@'))
         self.assertIn('GenerateTdlibNativeMetadata.java $env:GITHUB_WORKSPACE --check', action)
         checks = workflow.split('  native:')[0]
