@@ -1,17 +1,19 @@
-name: Desktop packages
-# Builds one installer per platform with the builder-owned Telegram identity from the
-# NNGGRAM_API_ID / NNGGRAM_API_HASH repository Secrets. Branch pushes keep each installer
-# as a directly downloadable artifact; a vMAJOR.MINOR.PATCH tag also attaches them to a release.
+name: Build desktop packages
+# Shared by ci.yml and release.yml. Builds one installer per platform with the builder-owned
+# Telegram identity from the NNGGRAM_API_ID / NNGGRAM_API_HASH repository Secrets. Every
+# installer is kept as a directly downloadable artifact; release callers also attach it to the tag.
 on:
-  push:
-    branches: [main, dev, 'feature/**']
-    tags: ['v*']
-  workflow_dispatch:
-permissions:
-  contents: read
-concurrency:
-  group: packages-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  workflow_call:
+    inputs:
+      release:
+        description: Attach the installers to the GitHub release of the pushed tag.
+        type: boolean
+        default: false
+    secrets:
+      NNGGRAM_API_ID:
+        required: true
+      NNGGRAM_API_HASH:
+        required: true
 jobs:
   plan:
     name: Resolve version and identity
@@ -43,8 +45,6 @@ jobs:
     needs: plan
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -91,7 +91,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Attach the installer to the tag release
-        if: github.ref_type == 'tag'
+        if: inputs.release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -103,8 +103,6 @@ jobs:
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    permissions:
-      contents: write
     env:
       PACKAGE: nngGram-${{ needs.plan.outputs.version }}-linux-x64.deb
     steps:
@@ -151,7 +149,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Attach the installer to the tag release
-        if: github.ref_type == 'tag'
+        if: inputs.release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -163,8 +161,6 @@ jobs:
     needs: plan
     runs-on: windows-2022
     timeout-minutes: 180
-    permissions:
-      contents: write
     env:
       PACKAGE: nngGram-${{ needs.plan.outputs.version }}-windows-x64.msi
       APP_VERSION: ${{ needs.plan.outputs.version }}
@@ -224,7 +220,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Attach the installer to the tag release
-        if: github.ref_type == 'tag'
+        if: inputs.release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

@@ -12,62 +12,43 @@ class WorkflowTests(unittest.TestCase):
                 if not action.startswith('./'):
                     self.assertRegex(action, r'^[\w.-]+/[\w./-]+@[0-9a-f]{40}$')
 
-    def test_workflow_gates_distribution_and_scopes_secrets(self):
-        text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
-        checks = text.split('  native:')[0]
-        self.assertNotIn('secrets.', checks)
-        self.assertNotIn('pull_request_target', text)
-        self.assertIn("github.repository == vars.DISTRIBUTION_REPOSITORY", text)
-        native = text.split('  native:')[1].split('  release:')[0]
-        release = text.split('  release:')[1].split('  telegram:')[0]
-        self.assertIn('RequireTelegramApi = $true', native)
-        self.assertNotIn('contents: write', checks + native)
-        self.assertEqual(1, text.count('contents: write'))
+    def test_ci_and_release_share_one_build_and_only_release_may_write(self):
+        workflows = ROOT / '.github/workflows'
+        build = (workflows / 'build.yml').read_text(encoding='utf-8')
+        ci = (workflows / 'ci.yml').read_text(encoding='utf-8')
+        release = (workflows / 'release.yml').read_text(encoding='utf-8')
+        for text in (build, ci, release):
+            self.assertNotIn('pull_request', text)
+        self.assertIn('workflow_call:', build)
+        self.assertNotIn('contents:', build)
+        for caller in (ci, release):
+            self.assertIn('uses: ./.github/workflows/build.yml', caller)
+        self.assertIn('contents: read', ci)
+        self.assertNotIn('contents: write', ci)
+        self.assertNotIn("tags:", ci)
+        self.assertNotIn('release: true', ci)
+        self.assertIn("tags: ['v*']", release)
+        self.assertNotIn('branches:', release)
+        self.assertIn('release: true', release)
         self.assertIn('contents: write', release)
-        self.assertIn("github.event_name != 'pull_request'", native)
-        self.assertIn('github.repository == vars.DISTRIBUTION_REPOSITORY', native)
-        self.assertIn("github.ref_type == 'tag'", release)
-        self.assertIn('github.repository == vars.DISTRIBUTION_REPOSITORY', release)
-        self.assertIn('compression-level: 0', text)
-        self.assertIn('queue: max', text)
 
-    def test_quick_job_does_not_depend_on_full_jvm_job_and_tag_reuses_its_packages(self):
-        text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
-        native = text.split('  native:')[1].split('  release:')[0]
-        release = text.split('  release:')[1].split('  telegram:')[0]
-        self.assertIn("tags: ['v*']", text)
-        self.assertIn('needs: plan', native)
-        self.assertNotIn('needs: checks', native)
-        self.assertIn("RunTests = ($env:BUILD_MODE -eq 'release')", native)
-        self.assertIn('Verify built EXE using offline native diagnostics', native)
-        self.assertIn('AppVersion = $env:APP_VERSION', native)
-        self.assertIn('-Version $env:APP_VERSION', native)
-        self.assertIn('needs: [plan, native]', release)
-        self.assertIn('needs.native.outputs.artifact_name', release)
-        self.assertNotIn('build-desktop-native.ps1', release)
-        self.assertIn('release_ci.py', release)
+    def test_installers_use_repository_identity_and_upload_unarchived(self):
+        build = (ROOT / '.github/workflows/build.yml').read_text(encoding='utf-8')
+        self.assertIn('RequireTelegramApi = $true', build)
+        self.assertIn('-PrequireTelegramApi=true', build)
+        self.assertIn('build-macos.sh --release', build)
+        self.assertEqual(build.count('actions/upload-artifact@'), build.count('archive: false'))
+        self.assertEqual(3, build.count('if: inputs.release'))
+        self.assertEqual(build.count('gh release upload'), build.count('if: inputs.release'))
 
-    def test_tdlib_dependency_retention_precedes_application_tests(self):
+    def test_tdlib_dependency_cache_is_exact_and_saved_before_upload(self):
         action = (ROOT / '.github/actions/prepare-native/action.yml').read_text(encoding='utf-8')
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
         self.assertNotIn('restore-keys:', action)
         self.assertNotIn('secrets.', action)
         self.assertIn('Reject any nonexact cache match', action)
         self.assertIn('retention-days: 90', action)
         self.assertLess(action.index('actions/cache/save@'), action.index('actions/upload-artifact@'))
         self.assertIn('GenerateTdlibNativeMetadata.java $env:GITHUB_WORKSPACE --check', action)
-        checks = workflow.split('  native:')[0]
-        self.assertLess(checks.index('uses: ./.github/actions/prepare-native'), checks.index('Assemble and run JVM tests'))
-
-    def test_synthetic_msi_validation_precedes_native_image_and_reuses_verified_wix(self):
-        text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
-        native = text.split('  native:')[1].split('  release:')[0]
-        self.assertEqual(1, native.count('prepare-wix-ci.ps1'))
-        self.assertLess(native.index('prepare-wix-ci.ps1'), native.index('-CompileSyntheticMsi'))
-        self.assertLess(native.index('-CompileSyntheticMsi'), native.index('Build native application'))
-        self.assertLess(native.index('Build native application'), native.index('package-desktop.ps1'))
-        self.assertIn('-WixDirectory "$env:RUNNER_TEMP/wix311"', native)
-        self.assertNotIn('-SkipMsiValidation', native)
 
     def test_yaml_if_parser_available(self):
         try:
