@@ -4,6 +4,7 @@ package com.badnng.moe
 
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.asAwtTransferable
+import com.badnng.moe.platform.DesktopPlatform
 import com.sun.jna.Function
 import com.sun.jna.Memory
 import com.sun.jna.NativeLibrary
@@ -24,25 +25,10 @@ internal object PlatformNativeImageSmoke {
             val report = arguments.getOrNull(1)?.let(Path::of)
             require(report == null || report.isAbsolute)
             GraalVmInitializer.initialize()
-            val kernel = NativeLibrary.getInstance("kernel32")
-            val processId = kernel.getFunction("GetCurrentProcessId", Function.ALT_CONVENTION).invokeInt(emptyArray())
-            check((processId.toLong() and 0xffff_ffffL) == ProcessHandle.current().pid())
-            Memory(8).use { timestamp ->
-                timestamp.clear()
-                kernel.getFunction("GetSystemTimeAsFileTime", Function.ALT_CONVENTION).invokeVoid(arrayOf(timestamp))
-                check(timestamp.getLong(0) > 0)
-            }
-            val user = NativeLibrary.getInstance("user32")
-            check(user.getFunction("IsWindow", Function.ALT_CONVENTION).invokeInt(arrayOf(Pointer.NULL)) == 0)
-            listOf("OpenClipboard", "GetClipboardData", "SetClipboardData", "CloseClipboard").forEach {
-                check(Pointer.nativeValue(user.getFunction(it, Function.ALT_CONVENTION)) != 0L)
-            }
-            val audio = NativeLibrary.getInstance("winmm")
-            check(Pointer.nativeValue(NativeLibrary.getInstance("shell32").getFunction("ShellExecuteW", Function.ALT_CONVENTION)) != 0L)
-            listOf("waveOutOpen", "waveOutPrepareHeader", "waveOutWrite", "waveOutReset", "waveOutUnprepareHeader", "waveOutClose",
-                "waveInOpen", "waveInPrepareHeader", "waveInAddBuffer", "waveInStart", "waveInStop", "waveInReset",
-                "waveInUnprepareHeader", "waveInClose").forEach {
-                check(Pointer.nativeValue(audio.getFunction(it, Function.ALT_CONVENTION)) != 0L)
+            if (DesktopPlatform.current.isWindows) {
+                verifyWindows()
+            } else if (DesktopPlatform.current.isMacOS) {
+                verifyMacOS()
             }
             // Compose uses this Java data-transfer container even on Tao; no Toolkit is involved.
             val sample = "离线剪贴板容器🙂"
@@ -56,5 +42,35 @@ internal object PlatformNativeImageSmoke {
         } catch (_: Throwable) {
             throw IllegalStateException("PLATFORM_NATIVE_SMOKE_FAILED")
         }
+    }
+
+    private fun verifyWindows() {
+        val kernel = NativeLibrary.getInstance("kernel32")
+        val processId = kernel.getFunction("GetCurrentProcessId", Function.ALT_CONVENTION).invokeInt(emptyArray())
+        check((processId.toLong() and 0xffff_ffffL) == ProcessHandle.current().pid())
+        Memory(8).use { timestamp ->
+            timestamp.clear()
+            kernel.getFunction("GetSystemTimeAsFileTime", Function.ALT_CONVENTION).invokeVoid(arrayOf(timestamp))
+            check(timestamp.getLong(0) > 0)
+        }
+        val user = NativeLibrary.getInstance("user32")
+        check(user.getFunction("IsWindow", Function.ALT_CONVENTION).invokeInt(arrayOf(Pointer.NULL)) == 0)
+        listOf("OpenClipboard", "GetClipboardData", "SetClipboardData", "CloseClipboard").forEach {
+            check(Pointer.nativeValue(user.getFunction(it, Function.ALT_CONVENTION)) != 0L)
+        }
+        val audio = NativeLibrary.getInstance("winmm")
+        check(Pointer.nativeValue(NativeLibrary.getInstance("shell32").getFunction("ShellExecuteW", Function.ALT_CONVENTION)) != 0L)
+        listOf("waveOutOpen", "waveOutPrepareHeader", "waveOutWrite", "waveOutReset", "waveOutUnprepareHeader", "waveOutClose",
+            "waveInOpen", "waveInPrepareHeader", "waveInAddBuffer", "waveInStart", "waveInStop", "waveInReset",
+            "waveInUnprepareHeader", "waveInClose").forEach {
+            check(Pointer.nativeValue(audio.getFunction(it, Function.ALT_CONVENTION)) != 0L)
+        }
+    }
+
+    private fun verifyMacOS() {
+        // Verify core system frameworks are loadable.
+        check(ProcessHandle.current().pid() > 0)
+        val coreFoundation = NativeLibrary.getInstance("CoreFoundation")
+        check(Pointer.nativeValue(coreFoundation.getFunction("CFRelease")) != 0L)
     }
 }

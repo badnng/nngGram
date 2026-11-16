@@ -1,4 +1,4 @@
-name: Windows CI
+name: Desktop CI
 on:
   push:
     branches: ['**', '!dependabot/**']
@@ -197,9 +197,22 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+  posix:
+    name: Build macOS and Linux installers
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request' &&
+      vars.DISTRIBUTION_REPOSITORY != '' && github.repository == vars.DISTRIBUTION_REPOSITORY &&
+      (needs.plan.outputs.mode == 'quick' || needs.plan.outputs.mode == 'release')
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+    secrets:
+      NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
+      NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
   release:
     name: Publish verified tag artifacts
-    needs: [plan, native]
+    needs: [plan, native, posix]
     if: >-
       needs.plan.outputs.mode == 'release' && github.ref_type == 'tag' &&
       github.event_name != 'pull_request' &&
@@ -220,10 +233,16 @@ jobs:
         with:
           name: ${{ needs.native.outputs.artifact_name }}
           path: ${{ runner.temp }}/release-dist
+      - name: Download verified macOS and Linux installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: nngGram-posix-*-${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-posix
       - name: Create draft, verify uploaded assets, then publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -B .github/scripts/release_ci.py "$RUNNER_TEMP/release-dist"
+        run: python3 -B .github/scripts/release_ci.py "$RUNNER_TEMP/release-dist" --posix-directory "$RUNNER_TEMP/release-posix"
   telegram:
     name: Send CI ZIP to Telegram
     needs: [plan, native]

@@ -1,0 +1,130 @@
+name: Build macOS and Linux packages
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version selected by the trusted desktop workflow.
+        type: string
+        required: true
+    secrets:
+      NNGGRAM_API_ID:
+        required: true
+      NNGGRAM_API_HASH:
+        required: true
+
+jobs:
+  packages:
+    name: ${{ matrix.profile }} ${{ matrix.format }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, profile: macos-arm64, format: dmg }
+          - { runner: macos-15-intel, profile: macos-x64, format: dmg }
+          - { runner: ubuntu-24.04, profile: linux-x64, format: deb }
+    env:
+      PACKAGE: nngGram-${{ inputs.version }}-${{ matrix.profile }}.${{ matrix.format }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: zulu
+          java-version: '21'
+      - name: Restore the pinned platform bundle
+        id: tdlib
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: native/${{ matrix.profile }}
+          key: posix-tdlib-${{ matrix.profile }}-${{ matrix.runner }}-${{ hashFiles('native/tdlib-source.properties', 'scripts/build-tdlib.sh') }}${{ matrix.format == 'dmg' && format('-{0}', hashFiles('scripts/bundle-macos-libraries.py', 'scripts/prepare-media-macos.sh')) || '' }}
+      - name: Install macOS build dependencies
+        if: matrix.format == 'dmg' && steps.tdlib.outputs.cache-hit != 'true'
+        run: brew install ninja gperf openssl@3 ffmpeg
+      - name: Install Linux packaging and build dependencies
+        if: matrix.format == 'deb'
+        env:
+          TDLIB_CACHE_HIT: ${{ steps.tdlib.outputs.cache-hit }}
+        run: |
+          sudo apt-get update
+          if [ "$TDLIB_CACHE_HIT" = true ]; then
+            sudo apt-get install -y fakeroot
+          else
+            sudo apt-get install -y fakeroot cmake ninja-build gperf g++ libssl-dev zlib1g-dev
+          fi
+      - name: Build TDLib on an exact cache miss
+        if: steps.tdlib.outputs.cache-hit != 'true'
+        env:
+          JOBS: ${{ matrix.format == 'dmg' && '3' || '4' }}
+        run: sh scripts/build-tdlib.sh
+      - name: Bundle macOS media tools
+        if: matrix.format == 'dmg' && steps.tdlib.outputs.cache-hit != 'true'
+        run: sh scripts/prepare-media-macos.sh
+      - name: Save the platform bundle before application packaging
+        if: steps.tdlib.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: native/${{ matrix.profile }}
+          key: ${{ steps.tdlib.outputs.cache-primary-key }}
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch }}
+      - name: Build the platform installer
+        env:
+          NNGGRAM_API_ID: ${{ secrets.NNGGRAM_API_ID }}
+          NNGGRAM_API_HASH: ${{ secrets.NNGGRAM_API_HASH }}
+          ORG_GRADLE_PROJECT_nnggramVersion: ${{ inputs.version }}
+          PACKAGE_FORMAT: ${{ matrix.format }}
+        run: |
+          if [ "$PACKAGE_FORMAT" = dmg ]; then
+            sh scripts/build-macos.sh --release
+          else
+            ./gradlew :desktopApp:packageDeb -PrequireTelegramApi=true --no-configuration-cache --console=plain --max-workers=2
+          fi
+      - name: Verify packaged TDLib offline and checksum the installer
+        env:
+          PACKAGE_FORMAT: ${{ matrix.format }}
+        run: |
+          report="$RUNNER_TEMP/posix-tdlib-smoke.txt"
+          mkdir -p dist
+          if [ "$PACKAGE_FORMAT" = dmg ]; then
+            set -- desktopApp/build/compose/binaries/main/dmg/*.dmg
+            test "$#" -eq 1
+            test -f "$1"
+            cp "$1" "dist/$PACKAGE"
+            app=desktopApp/build/compose/binaries/main/app/nngGram.app
+            executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+            "$app/Contents/MacOS/$executable" --tdlib-native-smoke "$report"
+          else
+            set -- desktopApp/build/compose/binaries/main/deb/*.deb
+            test "$#" -eq 1
+            test -f "$1"
+            cp "$1" "dist/$PACKAGE"
+            extracted=$(mktemp -d "$RUNNER_TEMP/nnggram-deb.XXXXXX")
+            dpkg-deb -x "$1" "$extracted"
+            launcher=$(find "$extracted" -type f -path '*/bin/nnggram')
+            test -x "$launcher"
+            "$launcher" --tdlib-native-smoke "$report"
+          fi
+          test -s "$report"
+          (cd dist && shasum -a 256 "$PACKAGE" > "$PACKAGE.sha256")
+      - name: Retain offline TDLib diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: posix-tdlib-smoke-${{ matrix.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/posix-tdlib-smoke.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Retain the verified installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nngGram-posix-${{ matrix.profile }}-${{ github.run_id }}
+          path: dist/
+          overwrite: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

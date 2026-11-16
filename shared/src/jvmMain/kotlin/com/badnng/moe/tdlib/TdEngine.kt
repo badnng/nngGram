@@ -197,6 +197,9 @@ class TdEngine(
     @Volatile private var session: TdSession? = null
     private var nativeSaveTargets: com.badnng.moe.media.NativeSaveTargetRegistry.Registration? = null
     private var chatController: ChatController? = null
+    // TDLib reports the folder list once per client and has no request to read it again. A copy
+    // queued under an earlier local-lock witness is discarded, so keep the latest until applied.
+    private val pendingFolders = java.util.concurrent.atomic.AtomicReference<Pair<Long, ChatEvent.Folders>?>()
     @Volatile private var settingsController: SettingsController? = null
     /** Physical native work survives logical page cancellation and controller generations. */
     private val settingsProxyProbeBudget = SettingsProxyProbeBudget()
@@ -246,13 +249,13 @@ class TdEngine(
         localLockDispatcher.dispatch(kotlin.coroutines.EmptyCoroutineContext, task)
     }
     private val localIdleScheduler = LocalLockExecutorDeadlineScheduler()
-    /** Synthetic tests install this before start; production uses Windows system idle. */
+    /** Synthetic tests install this before start; production uses the platform idle source. */
     internal var localLockIdleFactory: (((LocalLockIdleDue) -> Unit, () -> Unit) -> LocalLockIdleController)? = null
     private val localIdle: LocalLockIdleController by lazy {
         val onDue: (LocalLockIdleDue) -> Unit = { postAction(Action.LocalIdleDue(it)); Unit }
         val onAvailability: () -> Unit = { postAction(Action.LocalIdleAvailability); Unit }
         localLockIdleFactory?.invoke(onDue, onAvailability)
-            ?: LocalLockIdleController(WindowsLocalLockIdleSource(), localIdleScheduler, onDue, onAvailability)
+            ?: LocalLockIdleController(com.badnng.moe.security.desktopLocalLockIdleSource(), localIdleScheduler, onDue, onAvailability)
     }
     /** Tests install a fake before start; synthetic transports never register the system host by default. */
     internal var localLockResumeHostFactory: (() -> LocalLockWindowsResumeHost)? = null
@@ -500,7 +503,11 @@ class TdEngine(
                             is Action.CancelQr -> cancelQrOnActor(action.token)
                             is Action.LoginCompleted -> loginCompleted(action)
                             is Action.ChatUpdate -> if (current(action.generation) && !closeSent && !disposeRequested) {
-                                chatController?.event(action.event)
+                                val event = action.event
+                                chatController?.event(event)
+                                val pending = pendingFolders.get()
+                                if (pending?.second === event) pendingFolders.compareAndSet(pending, null)
+                                else deliverPendingFolders()
                             }
                             is Action.ChatWork -> if (current(action.generation) && action.epoch == chatEpoch && !closeSent && !disposeRequested) {
                                 action.work()
@@ -2511,7 +2518,10 @@ class TdEngine(
                 postAction(Action.Authorization(current, it)) },
             { postAction(Action.Connection(current, it)) },
             { postAction(Action.CallbackError(current)) },
-            { postAction(Action.ChatUpdate(current, it)) },
+            {
+                if (it is ChatEvent.Folders) pendingFolders.set(current to it)
+                postAction(Action.ChatUpdate(current, it))
+            },
         )
         nativeCreationUncertain = false
         session?.interactionGate?.bindLocalWitness { localGateWitness(owner) }
@@ -2939,7 +2949,15 @@ class TdEngine(
             chatController?.start()
             settingsController?.start()
             deviceNotificationsController?.start()
+            deliverPendingFolders()
         }
+    }
+
+    private fun deliverPendingFolders() {
+        val pending = pendingFolders.get() ?: return
+        val controller = chatController
+        if (pending.first == generation && (controller == null || closeSent || disposeRequested)) return
+        if (pendingFolders.compareAndSet(pending, null) && pending.first == generation) controller?.event(pending.second)
     }
 
     private fun applyInteractionGate() {

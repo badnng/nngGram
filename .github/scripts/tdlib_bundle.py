@@ -11,9 +11,12 @@ import struct
 import subprocess
 import zipfile
 
-DLLS = {'tdjni.dll', 'libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll',
-        'libcrypto-3-x64.dll', 'libssl-3-x64.dll', 'zlib1.dll'}
-TOP_FILES = DLLS | {'tdlib.jar', 'manifest.properties', 'TDLib-LICENSE.txt', 'toolchain-versions.txt'}
+CORE_DLLS = {'tdjni.dll', 'libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll'}
+OPENSSL_PAIRS = ({'libcrypto-3-x64.dll', 'libssl-3-x64.dll'}, {'libcrypto-4-x64.dll', 'libssl-4-x64.dll'})
+OPENSSL_NAMES = set().union(*OPENSSL_PAIRS)
+ZLIB_NAMES = {'zlib1.dll', 'libz-1.dll'}
+OTHER_FILES = {'tdlib.jar', 'manifest.properties', 'TDLib-LICENSE.txt', 'toolchain-versions.txt'}
+TOP_FILES = CORE_DLLS | OPENSSL_NAMES | ZLIB_NAMES | OTHER_FILES
 LICENSE_LAYOUT = json.loads((Path(__file__).resolve().parents[2] / 'native/tdlib-license-layout.json').read_text(encoding='utf-8'))
 LICENSE_GROUPS = LICENSE_LAYOUT['groups']
 LICENSE_PACKAGES = {package for group in LICENSE_GROUPS for alternative in group['alternatives'] for package in alternative}
@@ -51,19 +54,27 @@ def run(*arguments):
     return subprocess.check_output([str(x) for x in arguments], text=True, encoding='utf-8', stderr=subprocess.STDOUT).strip()
 
 
+def build_recipe(root):
+    return {'sourceCommit': pin(root), 'architecture': 'x64',
+            'buildInputs': {name: digest(root / name) for name in BUILD_INPUTS}}
+
+
+def fingerprint(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
 def identity(root, msys, jdk):
     tool = msys / 'ucrt64/bin'
-    value = {'format': 1, 'sourceCommit': pin(root), 'architecture': 'x64',
+    value = {'format': 1, **build_recipe(root),
              'compiler': run(tool / 'g++.exe', '-dumpfullversion'),
              'compilerTarget': run(tool / 'g++.exe', '-dumpmachine'),
              'cmake': run(tool / 'cmake.exe', '--version').splitlines()[0],
              'packages': sorted(run(msys / 'usr/bin/pacman.exe', '-Q').splitlines()),
              'javac': run(jdk / 'bin/javac.exe', '-version'),
-             'jdkRelease': digest(jdk / 'release'), 'compilerBinary': digest(tool / 'g++.exe'),
-             'buildInputs': {name: digest(root / name) for name in BUILD_INPUTS}}
+             'jdkRelease': digest(jdk / 'release'), 'compilerBinary': digest(tool / 'g++.exe')}
     if 'x86_64' not in value['compilerTarget']:
         raise ValueError('TDLib requires the x64 compiler')
-    value['key'] = 'tdlib-windows-x64-v1-' + hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    value['key'] = 'tdlib-windows-x64-v1-' + fingerprint(value)
     return value
 
 
@@ -104,8 +115,18 @@ def verify_pe(path):
 
 def validate_bundle(bundle, expected):
     files = regular_files(bundle)
-    if not TOP_FILES.issubset(files) or not all(allowed(name) for name in files):
-        raise ValueError('Bundle is incomplete or contains unexpected files')
+    zlib = ZLIB_NAMES & set(files)
+    openssl = OPENSSL_NAMES & set(files)
+    dlls = CORE_DLLS | zlib | openssl
+    missing = sorted((CORE_DLLS | OTHER_FILES) - set(files))
+    if len(zlib) != 1:
+        missing.append('exactly one of ' + ' / '.join(sorted(ZLIB_NAMES)))
+    if openssl not in OPENSSL_PAIRS:
+        missing.append('one matching OpenSSL 3 or 4 pair (found ' + (', '.join(sorted(openssl)) or 'none') + ')')
+    unexpected = sorted(name for name in files if not allowed(name))
+    if missing or unexpected:
+        raise ValueError(f"Bundle is incomplete or contains unexpected files; missing: {', '.join(missing) or '(none)'}; "
+                         f"unexpected: {', '.join(unexpected) or '(none)'}")
     present = {name.split('/')[1] for name in files if name.startswith('licenses/')}
     for group in LICENSE_GROUPS:
         if not any(set(alternative).issubset(present) for alternative in group['alternatives']):
@@ -120,12 +141,12 @@ def validate_bundle(bundle, expected):
     if any(manifest.get(key) != value for key, value in required.items()):
         raise ValueError('TDLib manifest does not match the current source/toolchain')
     order = manifest.get('load.order', '').split(',')
-    if len(order) != len(DLLS) or set(order) != DLLS or order[-1] != 'tdjni.dll':
+    if len(order) != len(dlls) or set(order) != dlls or order[-1] != 'tdjni.dll':
         raise ValueError('Invalid complete DLL load order')
     hashes = {key[7:]: value for key, value in manifest.items() if key.startswith('sha256.')}
-    if set(hashes) != DLLS | {'tdlib.jar'} or any(hashes[name] != digest(files[name]) for name in hashes):
+    if set(hashes) != dlls | {'tdlib.jar'} or any(hashes[name] != digest(files[name]) for name in hashes):
         raise ValueError('TDLib manifest hash mismatch')
-    for name in DLLS:
+    for name in dlls:
         verify_pe(files[name])
     with zipfile.ZipFile(files['tdlib.jar']) as jar:
         names = jar.namelist()
@@ -174,6 +195,19 @@ def verify_cache(cache, expected):
     return files
 
 
+def cached_identity(cache, recipe):
+    inventory = regular_files(cache).get('bundle-inventory.json')
+    if inventory is None:
+        raise ValueError('Missing complete bundle inventory')
+    saved = json.loads(inventory.read_text(encoding='utf-8')).get('identity')
+    if not isinstance(saved, dict) or saved.get('format') != 1 or any(saved.get(key) != value for key, value in recipe.items()):
+        raise ValueError('Cached dependency build recipe mismatch')
+    provenance = {key: value for key, value in saved.items() if key != 'key'}
+    if saved.get('key') != 'tdlib-windows-x64-v1-' + fingerprint(provenance):
+        raise ValueError('Cached dependency toolchain identity mismatch')
+    return saved
+
+
 def restore(cache, destination, expected):
     files = verify_cache(cache, expected)
     if destination.exists() and any(destination.iterdir()):
@@ -198,14 +232,24 @@ def archive(cache, directory, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['identity', 'export', 'verify', 'restore', 'archive'])
+    parser.add_argument('command', choices=['cache-key', 'identity', 'export', 'verify', 'restore', 'restore-cached', 'archive'])
     parser.add_argument('--root', type=Path, default=Path.cwd())
-    parser.add_argument('--identity', type=Path, required=True)
+    parser.add_argument('--identity', type=Path)
     parser.add_argument('--msys', type=Path)
     parser.add_argument('--jdk', type=Path)
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--directory', type=Path)
     args = parser.parse_args()
+    if args.command == 'cache-key':
+        recipe = build_recipe(args.root)
+        key = 'tdlib-windows-x64-recipe-v1-' + fingerprint(recipe)
+        if os.environ.get('GITHUB_OUTPUT'):
+            with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+                output.write(f"cache_key={key}\ncommit={recipe['sourceCommit']}\nfingerprint={key[-16:]}\n")
+        print(key)
+        return
+    if args.identity is None:
+        parser.error('--identity is required for this command')
     if args.command == 'identity':
         value = identity(args.root, args.msys, args.jdk)
         args.identity.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n', encoding='utf-8')
@@ -213,6 +257,11 @@ def main():
             with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
                 output.write(f"cache_key={value['key']}\ncommit={value['sourceCommit']}\nfingerprint={value['key'][-16:]}\n")
         print(value['key'])
+        return
+    if args.command == 'restore-cached':
+        value = cached_identity(args.cache, build_recipe(args.root))
+        restore(args.cache, args.directory, value)
+        args.identity.write_text(json.dumps(value, sort_keys=True, indent=2) + '\n', encoding='utf-8')
         return
     expected = json.loads(args.identity.read_text(encoding='utf-8'))
     if args.command == 'export':

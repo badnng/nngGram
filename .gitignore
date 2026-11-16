@@ -18,7 +18,12 @@ captures
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
 native/windows-x64/
+native/macos-x64/
+native/macos-arm64/
+native/linux-x64/
+native/linux-arm64/
 *.session
+gradle-local.properties
 tdlib-local.properties
 telegram-api.local.properties
 tdlib.properties

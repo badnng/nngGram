@@ -58,7 +58,8 @@ class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.directory = Path(self.temp.name)
+        self.directory = Path(self.temp.name) / 'windows'
+        self.directory.mkdir()
         self.zip = self.directory / 'nngGram-1.2.3-windows-x64.zip'
         self.msi = self.directory / 'nngGram-1.2.3-windows-x64.msi'
         self.msi.write_bytes(bytes.fromhex('d0cf11e0a1b11ae1') + b'installer fixture')
@@ -99,6 +100,32 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(create[2]['target_commitish'], COMMIT)
         self.assertEqual(create[2]['make_latest'], 'false')
         self.assertEqual(self.api.tag_checks, 2)
+
+    def posix_fixtures(self):
+        directory = Path(self.temp.name) / 'posix'
+        directory.mkdir()
+        for name in ('nngGram-1.2.3-macos-arm64.dmg', 'nngGram-1.2.3-macos-x64.dmg', 'nngGram-1.2.3-linux-x64.deb'):
+            path = directory / name
+            path.write_bytes(name.encode())
+            (directory / (name + '.sha256')).write_text(f'{release.sha256_file(path)}  {name}\n', encoding='utf-8')
+        return directory
+
+    def test_cross_platform_release_publishes_one_draft_with_every_package(self):
+        posix = self.posix_fixtures()
+        release.publish(self.directory, self.api, TAG, COMMIT, posix)
+        self.assertEqual(11, len(self.api.assets))
+        self.assertFalse(self.api.release['draft'])
+
+    def test_missing_or_tampered_posix_package_cannot_create_a_release(self):
+        posix = self.posix_fixtures()
+        deb = posix / 'nngGram-1.2.3-linux-x64.deb'
+        deb.write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError, 'Installer checksum mismatch'):
+            release.publish(self.directory, self.api, TAG, COMMIT, posix)
+        deb.unlink()
+        with self.assertRaisesRegex(ValueError, 'requires all macOS and Linux installers'):
+            release.publish(self.directory, self.api, TAG, COMMIT, posix)
+        self.assertEqual([], self.api.calls)
 
     def test_matching_partial_draft_reuses_identical_assets_without_overwriting(self):
         assets = self.own_draft()

@@ -66,6 +66,7 @@ import dev.nucleusframework.application.NucleusBackend
 import dev.nucleusframework.application.nucleusApplication
 import dev.nucleusframework.window.NucleusDecoratedWindowTheme
 import dev.nucleusframework.window.TitleBar
+import dev.nucleusframework.window.WindowBackground
 import dev.nucleusframework.window.styling.LocalTitleBarStyle
 import dev.nucleusframework.window.tao.TaoScreenGeometry
 import kotlinx.coroutines.Dispatchers
@@ -164,6 +165,10 @@ private fun NucleusApplicationScope.ConnectedDesktop(toastActivationLaunch: Bool
             storageHandles.forEach { it.close() }
         }
     }
+    val setupActions = remember(configuration) {
+        SetupActions(load = configuration::setupSnapshot, detectSystemProxy = configuration::systemProxyLabel,
+            save = configuration::saveSetup)
+    }
     val scope = rememberCoroutineScope()
     var closing by remember { mutableStateOf(false) }
     var exitRequested by remember { mutableStateOf(false) }
@@ -229,7 +234,12 @@ private fun NucleusApplicationScope.ConnectedDesktop(toastActivationLaunch: Bool
                     val result = withContext(Dispatchers.IO) {
                         runCatching {
                             configuration.ensureTemplate()
-                            ProcessBuilder("notepad.exe", configuration.path.toString()).start()
+                            val platform = com.badnng.moe.platform.DesktopPlatform.current
+                            ProcessBuilder(when {
+                                platform.isWindows -> listOf("notepad.exe", configuration.path.toString())
+                                platform.isMacOS -> listOf("open", "-t", configuration.path.toString())
+                                else -> listOf("xdg-open", configuration.path.toString())
+                            }).start()
                         }
                     }
                     configurationOpenError = if (result.isFailure) "无法打开编辑器，请手动打开上方路径中的配置文件。" else null
@@ -254,6 +264,7 @@ private fun NucleusApplicationScope.ConnectedDesktop(toastActivationLaunch: Bool
                 profileEmojiArtwork = profileEmojiArtwork,
                 profileStickerAvatarArtwork = profileStickerAvatarArtwork,
                 onAppActivity = engine::recordLocalLockAppActivity,
+                setupActions = setupActions,
                 settingsActions = SettingsActions(
                     localLock = engine.localLockActions,
                     loginEmail = com.badnng.moe.settings.LoginEmailActions(
@@ -748,7 +759,10 @@ private fun NucleusApplicationScope.DesktopWindow(
                 DisposableEffect(activity) { onDispose { activity.close() } }
                 val active by activity.active.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
                 val nativeOwner = nucleusWindow.unsafe.taoWindow?.nativeHandle
-                val clipboard = remember(nativeOwner) { WindowsClipboard(checkNotNull(nativeOwner)) }
+                val clipboard: DesktopClipboardHost = remember(nativeOwner) {
+                    if (com.badnng.moe.platform.DesktopPlatform.current.isWindows) WindowsClipboard(checkNotNull(nativeOwner))
+                    else DesktopSystemClipboard()
+                }
                 val retryingClipboard = remember(clipboard) { RetryingClipboard(clipboard) }
                 CompositionLocalProvider(
                     LocalClipboard provides retryingClipboard,
@@ -759,10 +773,15 @@ private fun NucleusApplicationScope.DesktopWindow(
                     LocalAppThemeObserver provides onAppTheme,
                     LocalTextInputSessionHost provides { editor -> WindowsImeTextInputHost(editor) },
                 ) {
+                    // Areas exposed by a live resize or maximize are cleared with this colour
+                    // before the next composed frame; keep it equal to the painted surface.
+                    val windowSurface = MiuixTheme.colorScheme.surface
+                    WindowBackground(windowSurface)
                     Column(Modifier.fillMaxSize()) {
                         val titleBarStyle = LocalTitleBarStyle.current
                         TitleBar(modifier = Modifier.height(44.dp),
-                            style = titleBarStyle.copy(metrics = titleBarStyle.metrics.copy(height = 44.dp)),
+                            style = titleBarStyle.copy(metrics = titleBarStyle.metrics.copy(height = 44.dp),
+                                colors = titleBarStyle.colors.copy(background = windowSurface, inactiveBackground = windowSurface)),
                             backgroundContent = {
                                 Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface))
                             }) {

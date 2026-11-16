@@ -85,7 +85,26 @@ def verify_payload(archive_path, manifest_path):
                 raise ValueError('ZIP payload hash mismatch')
 
 
-def validate(directory, tag, commit):
+def validate_posix(directory, version):
+    installers = {f'nngGram-{version}-{profile}.{extension}' for profile, extension in (
+        ('macos-arm64', 'dmg'), ('macos-x64', 'dmg'), ('linux-x64', 'deb'))}
+    children = list(directory.iterdir())
+    if {path.name for path in children} != installers | {name + '.sha256' for name in installers}:
+        raise ValueError('Release requires all macOS and Linux installers and their checksums')
+    files = {path.name: regular(path) for path in children}
+    if any(not 0 < files[name].stat().st_size <= 2_000_000_000 for name in installers):
+        raise ValueError('Invalid macOS or Linux installer size')
+    if any(not 0 < files[name + '.sha256'].stat().st_size <= 256 for name in installers):
+        raise ValueError('Invalid macOS or Linux checksum file size')
+    assets = {name: Asset(path, path.stat().st_size, sha256_file(path)) for name, path in files.items()}
+    for name in installers:
+        checksum = files[name + '.sha256'].read_text(encoding='utf-8').rstrip('\n')
+        if checksum != f'{assets[name].sha256}  {name}':
+            raise ValueError(f'Installer checksum mismatch: {name}')
+    return assets
+
+
+def validate(directory, tag, commit, posix_directory=None):
     version = stable_version(tag)
     if not re.fullmatch('[a-f0-9]{40}', commit):
         raise ValueError('Invalid release commit')
@@ -124,6 +143,8 @@ def validate(directory, tag, commit):
         if stream.read(8) != bytes.fromhex('d0cf11e0a1b11ae1'):
             raise ValueError('Installer is not a Windows MSI compound file')
     verify_payload(files[f'nngGram-{version}-windows-x64.zip'], files['payload-sha256.json'])
+    if posix_directory is not None:
+        assets.update(validate_posix(posix_directory, version))
     return assets
 
 
@@ -188,7 +209,8 @@ class GitHub:
 
 def body_for(tag, commit, assets):
     fingerprint = hashlib.sha256(json.dumps({name: [asset.size, asset.sha256] for name, asset in sorted(assets.items())}, sort_keys=True).encode()).hexdigest()
-    return f'nngGram Windows x64 {tag}\n\n<!-- nnggram-native-release:v1;tag={tag};commit={commit};assets={fingerprint} -->'
+    description = 'nngGram' if any(name.endswith('.dmg') for name in assets) else 'nngGram Windows x64'
+    return f'{description} {tag}\n\n<!-- nnggram-native-release:v1;tag={tag};commit={commit};assets={fingerprint} -->'
 
 
 def verify_draft(release, tag, commit, body):
@@ -220,8 +242,8 @@ def checked_assets(api, release_id, expected, complete=False):
     return found
 
 
-def publish(directory, api, tag, commit):
-    assets = validate(directory, tag, commit)
+def publish(directory, api, tag, commit, posix_directory=None):
+    assets = validate(directory, tag, commit, posix_directory)
     body = body_for(tag, commit, assets)
     check_tag(api, tag, commit)
     matches = [release for release in api.pages('/releases') if release.get('tag_name') == tag]
@@ -243,7 +265,7 @@ def publish(directory, api, tag, commit):
     checked_assets(api, release_id, assets, complete=True)
     # A later rerun must not complete a draft after the tag or another actor has changed ownership/content.
     verify_draft(api.request('GET', f'/releases/{release_id}'), tag, commit, body)
-    if assets != validate(directory, tag, commit):
+    if assets != validate(directory, tag, commit, posix_directory):
         raise ValueError('Local release files changed before publication')
     check_tag(api, tag, commit)
     published = api.request('PATCH', f'/releases/{release_id}', {'draft': False, 'make_latest': 'false'})
@@ -255,12 +277,13 @@ def publish(directory, api, tag, commit):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', type=Path)
+    parser.add_argument('--posix-directory', type=Path)
     args = parser.parse_args()
     env = os.environ
     if env.get('GITHUB_REF_TYPE') != 'tag':
         raise ValueError('Only an explicit stable tag run may publish a release')
     publish(args.directory, GitHub(env.get('GITHUB_REPOSITORY', ''), env.get('GH_TOKEN', '')),
-            env.get('GITHUB_REF_NAME', ''), env.get('GITHUB_SHA', ''))
+            env.get('GITHUB_REF_NAME', ''), env.get('GITHUB_SHA', ''), args.posix_directory)
 
 
 if __name__ == '__main__':

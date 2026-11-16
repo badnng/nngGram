@@ -87,6 +87,7 @@ fun AppWelcomeScreen(
     state: AppWelcomeState,
     onContinue: () -> Unit,
     modifier: Modifier = Modifier,
+    onSetup: (() -> Unit)? = null,
 ) {
     var submitted by remember(state.generation, state.phase) { mutableStateOf(false) }
     val pending = state.phase in setOf(AppWelcomePhase.INITIALIZING, AppWelcomePhase.CLOSING)
@@ -111,7 +112,9 @@ fun AppWelcomeScreen(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(32.dp))
                 when (state.phase) {
-                    AppWelcomePhase.CONFIGURATION -> WelcomeNote("此版本尚未配置完成",
+                    AppWelcomePhase.CONFIGURATION -> if (onSetup != null) WelcomeNote("还差一步配置",
+                        "按引导填写应用身份并选择连接方式后即可登录。")
+                    else WelcomeNote("此版本尚未配置完成",
                         "请使用已配置的发行版本，或按构建文档重新构建。", error = true)
                     AppWelcomePhase.INITIALIZING -> {
                         Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
@@ -126,21 +129,32 @@ fun AppWelcomeScreen(
                     AppWelcomePhase.START -> Unit
                 }
                 if (state.phase != AppWelcomePhase.START) Spacer(Modifier.height(24.dp))
+                // Without credentials a retry cannot succeed; the guide is the only useful action.
+                val guideFirst = onSetup != null && state.phase == AppWelcomePhase.CONFIGURATION
                 Button(onClick = {
-                    if (actionEnabled) {
+                    if (guideFirst) { if (state.active) onSetup?.invoke() }
+                    else if (actionEnabled) {
                         submitted = true
                         onContinue()
                     }
-                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = actionEnabled,
+                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = if (guideFirst) state.active else actionEnabled,
                     colors = ButtonDefaults.buttonColorsPrimary(), cornerRadius = 15.dp,
                     insideMargin = PaddingValues(horizontal = 20.dp, vertical = 12.dp)) {
                     Text(when (state.phase) {
                         AppWelcomePhase.START -> "开始使用"
-                        AppWelcomePhase.CONFIGURATION -> "重试"
+                        AppWelcomePhase.CONFIGURATION -> if (guideFirst) "开始配置" else "重试"
                         AppWelcomePhase.INITIALIZING -> "正在准备…"
                         AppWelcomePhase.FAILED -> "重试"
                         AppWelcomePhase.CLOSING -> "等待关闭"
                     }, fontSize = 16.sp)
+                }
+                if (onSetup != null && !guideFirst && !pending) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { if (state.active) onSetup() }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        enabled = state.active, cornerRadius = 15.dp,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 10.dp)) {
+                        Text("连接与配置引导", fontSize = 14.sp)
+                    }
                 }
             }
         }

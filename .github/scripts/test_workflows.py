@@ -42,10 +42,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('Verify built EXE using offline native diagnostics', native)
         self.assertIn('AppVersion = $env:APP_VERSION', native)
         self.assertIn('-Version $env:APP_VERSION', native)
-        self.assertIn('needs: [plan, native]', release)
+        self.assertIn('needs: [plan, native, posix]', release)
         self.assertIn('needs.native.outputs.artifact_name', release)
         self.assertNotIn('build-desktop-native.ps1', release)
         self.assertIn('release_ci.py', release)
+
+    def test_posix_packages_use_the_same_distribution_gate_and_publisher(self):
+        text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+        posix = text.split('  posix:', 1)[1].split('  release:', 1)[0]
+        self.assertIn("github.event_name != 'pull_request'", posix)
+        self.assertIn('github.repository == vars.DISTRIBUTION_REPOSITORY', posix)
+        self.assertIn('uses: ./.github/workflows/build.yml', posix)
+        self.assertFalse((ROOT / '.github/workflows/release.yml').exists())
+        build = (ROOT / '.github/workflows/build.yml').read_text(encoding='utf-8')
+        self.assertIn('--tdlib-native-smoke', build)
+        self.assertLess(build.index('actions/cache/save@'), build.index('Build the platform installer'))
+        self.assertNotIn('gh release', build)
 
     def test_tdlib_dependency_retention_precedes_application_tests(self):
         action = (ROOT / '.github/actions/prepare-native/action.yml').read_text(encoding='utf-8')
@@ -54,6 +66,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('secrets.', action)
         self.assertIn('Reject any nonexact cache match', action)
         self.assertIn('retention-days: 90', action)
+        self.assertLess(action.index('actions/cache/restore@'), action.index('msys2/setup-msys2@'))
         self.assertLess(action.index('actions/cache/save@'), action.index('actions/upload-artifact@'))
         self.assertIn('GenerateTdlibNativeMetadata.java $env:GITHUB_WORKSPACE --check', action)
         checks = workflow.split('  native:')[0]

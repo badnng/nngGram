@@ -1,6 +1,6 @@
 # nngGram · 聊天与媒体
 
-Windows x64 / Kotlin Multiplatform / Compose / Miuix `0.9.4-rc01` / Nucleus `2.5.18` + Tao / GraalVM Native Image / 官方 TDLib Java JNI。
+Windows x64、macOS arm64/x64、Linux x64。使用 Kotlin Multiplatform、Compose、Miuix `0.9.4-rc01`、Nucleus `2.5.18`、Tao 和官方 TDLib Java JNI。Windows 发布 GraalVM Native Image，macOS 和 Linux 的安装包自带 JVM。
 
 应用默认显示真实 TDLib 运行状态：校验并加载原生库，读取版本与提交，再读取本地配置、准备数据目录并初始化单个客户端。正式构建已内置应用身份，开始页点击“开始使用”后可提交手机号、验证码和二步验证密码。登录后读取账号已有的聊天文件夹、主列表与归档，可批量阅读历史、回复、编辑、删除和转发消息，收发文本、照片、贴纸、视频和文件，并同步已读状态。视频在聊天区域内播放。引擎、账号授权和网络连接分别订阅并显示，支持本地 SOCKS5 / HTTP 代理、分类诊断、安全事件记录、停止和重启。
 
@@ -127,6 +127,12 @@ proxy_password=
 
 ## 从源码构建
 
+macOS 使用 JDK 21 和 Homebrew。安装 `cmake ninja gperf openssl@3 ffmpeg` 后运行 `sh scripts/build-macos.sh` 生成当前架构的 DMG，正式构建加 `--release`。当前签名方式为 ad-hoc。
+
+Linux x64 使用 JDK 21。Ubuntu 24.04 安装 `cmake ninja-build gperf g++ libssl-dev zlib1g-dev fakeroot` 后运行 `sh scripts/build-tdlib.sh`，再用 `./gradlew :desktopApp:packageDeb` 生成 DEB。使用下面相同的应用身份配置即可登录。
+
+### Windows x64
+
 需要 Windows x64、PowerShell 7.2+、JDK 21、MSYS2 UCRT64，以及用于 Native Image 的独立 GraalVM、MSVC 和 Windows SDK。Gradle daemon 保持项目指定的 Azul JDK 21。CI 使用的安装步骤可直接查看 [.github/actions/prepare-native/action.yml](.github/actions/prepare-native/action.yml)。
 
 1. 在 MSYS2 UCRT64 安装 `git gperf mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-zlib`。
@@ -139,7 +145,7 @@ proxy_password=
 
 ## GitHub Actions
 
-[Windows CI](.github/workflows/ci.yml) 支持 commit 快速打包、tag 正式发布及手动运行。原生分发须由仓库管理员设置：
+[桌面 CI](.github/workflows/ci.yml) 支持 commit 快速打包、tag 正式发布及手动运行。分发构建须由仓库管理员设置：
 
 | 类型 | 名称 | 用途 |
 | --- | --- | --- |
@@ -149,11 +155,13 @@ proxy_password=
 
 | 入口 | 行为 |
 | --- | --- |
-| 默认分支（本仓库 `main`）或 `dev` 的 commit | 快速构建 Native Image、MSI 和 ZIP，跳过全量 JVM 测试；保留依赖校验、脚本/安装器检查和生成 EXE 的离线烟雾测试；只上传 Actions 产物 |
-| `vMAJOR.MINOR.PATCH` tag，例如 `v0.2.0` | 执行一次完整 JVM、native、media 测试，构建并检查 EXE，随后自动发布包含 MSI/ZIP/校验和的 GitHub Release |
+| 默认分支（本仓库 `main`）或 `dev` 的 commit | 上传 Windows MSI/ZIP、两种架构的 macOS DMG 和 Linux x64 DEB。执行打包和离线原生检查 |
+| `vMAJOR.MINOR.PATCH` tag，例如 `v0.2.0` | 运行完整 Windows JVM、native、media 测试。全部平台的产物准备并验证完成后发布 GitHub Release |
 | PR、fork、其他分支 | 不注入正式 API，执行编译和 JVM 检查，不发布 |
 
 日常版本号由 `gradle.properties` 中的 `nnggramVersion` 管理。tag 构建以 tag 数字版本覆盖该值，同步到原生程序版本、TDLib 客户端版本、MSI/ZIP 文件名和构建信息。MSI 要求前两段不超过 255、第三段不超过 65535；当前发布入口只接受三段数字的稳定版 tag。
+
+CI 按目标架构、TDLib 固定源码和构建脚本缓存完整绑定。Windows 在安装 MSYS2 之前尝试恢复已校验的包，缓存缺失时从源码构建并记录实际工具链。
 
 正式发布步骤先创建草稿、上传全部附件并核对 SHA256，完整通过才公开。已发布 tag 不会覆盖；发布 job 失败可重跑，复用同一份产物和匹配的草稿。不要移动已发布的 tag。发布脚本不强制改写仓库的 Latest 指向，避免旧版本任务覆盖新版本选择。
 

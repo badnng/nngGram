@@ -33,7 +33,7 @@ internal interface DeviceNotificationSignals : AutoCloseable {
  */
 internal class WindowsNotificationSignals(
     private val hwnd: () -> Long,
-    private val audioFactory: () -> VideoAudioOutput = { WinMmAudioOutput() },
+    private val audioFactory: () -> VideoAudioOutput = { com.badnng.moe.media.DesktopAudio.output() },
     private val flashDriver: NotificationWindowFlashDriver = NativeNotificationWindowFlashDriver(),
     private val pcmFactory: (Int) -> ByteArray = ::deviceDefaultNotificationPcm,
 ) : DeviceNotificationSignals {

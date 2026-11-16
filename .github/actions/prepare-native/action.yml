@@ -12,8 +12,28 @@ runs:
       with:
         distribution: zulu
         java-version: '21'
-    - name: Install MSYS2 UCRT64 build tools
+    - name: Compute the pinned TDLib build recipe cache key
+      id: recipe
+      shell: pwsh
+      run: python -B .github/scripts/tdlib_bundle.py cache-key
+    - name: Restore complete exact TDLib dependency cache
+      id: cache
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ runner.temp }}/tdlib-bundle-cache
+        key: ${{ steps.recipe.outputs.cache_key }}
+        fail-on-cache-miss: false
+    - name: Reject any nonexact cache match
+      if: steps.cache.outputs.cache-matched-key != '' && steps.cache.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: throw 'Refusing a partial TDLib cache match.'
+    - name: Validate and install restored TDLib dependencies
+      if: steps.cache.outputs.cache-hit == 'true'
+      shell: pwsh
+      run: python -B .github/scripts/tdlib_bundle.py restore-cached --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --cache "$env:RUNNER_TEMP/tdlib-bundle-cache" --directory native/windows-x64
+    - name: Install MSYS2 UCRT64 build tools on cache miss
       id: msys
+      if: steps.cache.outputs.cache-hit != 'true'
       uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
       with:
         location: ${{ runner.temp }}
@@ -23,25 +43,10 @@ runs:
           git gperf mingw-w64-ucrt-x86_64-gcc
           mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
           mingw-w64-ucrt-x86_64-openssl mingw-w64-ucrt-x86_64-zlib
-    - name: Compute exact TDLib source and toolchain cache identity
-      id: identity
+    - name: Record the exact toolchain used to build the bundle
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: pwsh
       run: python -B .github/scripts/tdlib_bundle.py identity --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --msys '${{ steps.msys.outputs.msys2-location }}' --jdk $env:JAVA_HOME
-    - name: Restore complete exact TDLib dependency cache
-      id: cache
-      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-      with:
-        path: ${{ runner.temp }}/tdlib-bundle-cache
-        key: ${{ steps.identity.outputs.cache_key }}
-        fail-on-cache-miss: false
-    - name: Reject any nonexact cache match
-      if: steps.cache.outputs.cache-matched-key != '' && steps.cache.outputs.cache-hit != 'true'
-      shell: pwsh
-      run: throw 'Refusing a partial TDLib cache match.'
-    - name: Validate and install restored TDLib dependencies
-      if: steps.cache.outputs.cache-hit == 'true'
-      shell: pwsh
-      run: python -B .github/scripts/tdlib_bundle.py restore --identity "$env:RUNNER_TEMP/tdlib-build-identity.json" --cache "$env:RUNNER_TEMP/tdlib-bundle-cache" --directory native/windows-x64
     - name: Build pinned TDLib bundle on exact cache miss
       if: steps.cache.outputs.cache-hit != 'true'
       shell: pwsh
@@ -63,7 +68,7 @@ runs:
     - name: Retain standalone TDLib dependencies even if app tests fail
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        name: tdlib-windows-x64-${{ steps.identity.outputs.commit }}-${{ steps.identity.outputs.fingerprint }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+        name: tdlib-windows-x64-${{ steps.recipe.outputs.commit }}-${{ steps.recipe.outputs.fingerprint }}-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
         path: ${{ runner.temp }}/tdlib-bundle-artifact/
         if-no-files-found: error
         compression-level: 0

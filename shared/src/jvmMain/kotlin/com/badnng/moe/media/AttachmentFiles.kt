@@ -29,12 +29,13 @@ internal object MediaTools {
     }
 
     fun find(name: String): Path? {
-        require(name == "ffprobe.exe")
-        val key = name.removeSuffix(".exe")
+        val portable = com.badnng.moe.platform.DesktopPlatform.current.executable(name.removeSuffix(".exe"))
+        require(portable == com.badnng.moe.platform.DesktopPlatform.current.executable("ffprobe"))
+        val key = "ffprobe"
         val candidates = mutableListOf<Path>()
         System.getProperty("nnggram.$key.path")?.takeIf(String::isNotBlank)?.let { candidates.add(Path.of(it)) }
         System.getenv("NNGGRAM_${key.uppercase()}_PATH")?.takeIf(String::isNotBlank)?.let { candidates.add(Path.of(it)) }
-        MediaDecoder.findFfmpeg()?.parent?.let { candidates.add(it.resolve(name)) }
+        MediaDecoder.findFfmpeg()?.parent?.let { candidates.add(it.resolve(portable)) }
         return candidates.firstOrNull(Files::isRegularFile)
     }
 
@@ -125,7 +126,7 @@ internal object AttachmentFiles {
     private fun probe(file: Path): VideoInfo = probe(file.toString())
 
     private fun probe(input: String, includeAudio: Boolean = false, streaming: Boolean = false, source: ProgressiveVideoSource? = null): VideoInfo {
-        val executable = MediaTools.find("ffprobe.exe") ?: fail(AttachmentFailure.Reason.VIDEO_TOOLS_MISSING)
+        val executable = MediaTools.find("ffprobe") ?: fail(AttachmentFailure.Reason.VIDEO_TOOLS_MISSING)
         val protocols = if (streaming) "http,tcp" else "file,pipe"
         val timeout = if (streaming) 15L else 20L
         val output = try {

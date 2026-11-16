@@ -13,6 +13,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -67,7 +69,9 @@ internal fun ConversationWallpaper(
     SideEffect { consumerProbe?.invoke("wallpaper", night) }
     val background = imageResource(if (night) Res.drawable.telegram_wallpaper_night else Res.drawable.telegram_wallpaper_day)
     val pattern = if (night) null else imageResource(Res.drawable.telegram_wallpaper_pattern)
-    Canvas(modifier.fillMaxSize()) {
+    // Softlight reads the destination. A window surface may not be readable (a Metal drawable
+    // returns black), so blend the pattern with the base inside this layer and composite the result.
+    Canvas(modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         val viewport = IntSize(size.width.roundToInt(), size.height.roundToInt())
         if (viewport.width <= 0 || viewport.height <= 0) return@Canvas
         clipRect {

@@ -25,7 +25,8 @@ class BundleTests(unittest.TestCase):
                          'compiler': '15.2.0', 'cmake': 'cmake version 4.1.0',
                          'packages': ['gperf 3.1-1', 'mingw-w64-ucrt-x86_64-gcc 15.2.0-1'],
                          'key': 'tdlib-windows-x64-v1-' + 'b' * 64}
-        for name in bundle.DLLS:
+        self.dlls = bundle.CORE_DLLS | bundle.OPENSSL_PAIRS[0] | {'zlib1.dll'}
+        for name in self.dlls:
             data = bytearray(128)
             data[:2] = b'MZ'
             struct.pack_into('<I', data, 60, 64)
@@ -50,15 +51,50 @@ class BundleTests(unittest.TestCase):
             jar.writestr('org/drinkless/tdlib/TdApi.class', b'fixture')
 
     def write_manifest(self):
-        order = sorted(bundle.DLLS - {'tdjni.dll'}) + ['tdjni.dll']
+        order = sorted(self.dlls - {'tdjni.dll'}) + ['tdjni.dll']
         fields = {'format': '1', 'source.commit': self.expected['sourceCommit'], 'architecture': 'x64',
                   'binding': 'official-java-jni', 'binding.loader.patch': 'absolute-path-v1',
                   'compiler': self.expected['compiler'], 'cmake': self.expected['cmake'], 'load.order': ','.join(order)}
-        fields.update({'sha256.' + name: bundle.digest(self.source / name) for name in bundle.DLLS | {'tdlib.jar'}})
+        fields.update({'sha256.' + name: bundle.digest(self.source / name) for name in self.dlls | {'tdlib.jar'}})
         (self.source / 'manifest.properties').write_text(''.join(f'{key}={value}\n' for key, value in fields.items()), encoding='utf-8')
 
     def export(self):
         bundle.export_bundle(self.source, self.cache, self.expected)
+
+    def rename_dependency(self, old_name, new_name):
+        old_path = self.source / old_name
+        (self.source / new_name).write_bytes(old_path.read_bytes())
+        old_path.unlink()
+        self.dlls.remove(old_name)
+        self.dlls.add(new_name)
+        self.write_manifest()
+
+    def test_openssl_4_and_zlib_14_bundle_restores_with_its_actual_manifest(self):
+        self.rename_dependency('zlib1.dll', 'libz-1.dll')
+        self.rename_dependency('libcrypto-3-x64.dll', 'libcrypto-4-x64.dll')
+        self.rename_dependency('libssl-3-x64.dll', 'libssl-4-x64.dll')
+        self.export()
+        restored = self.root / 'restored'
+        bundle.restore(self.cache, restored, self.expected)
+        self.assertEqual({path.name for path in restored.glob('*.dll')}, self.dlls)
+
+    def test_mixed_openssl_versions_in_one_bundle_are_rejected(self):
+        self.rename_dependency('libcrypto-3-x64.dll', 'libcrypto-4-x64.dll')
+        with self.assertRaisesRegex(ValueError, 'one matching OpenSSL 3 or 4 pair'):
+            self.export()
+
+    def test_cached_recipe_uses_saved_compiler_and_rejects_changed_build_inputs(self):
+        recipe = {'sourceCommit': self.expected['sourceCommit'], 'architecture': 'x64',
+                  'buildInputs': {'build-tdlib.ps1': 'c' * 64}}
+        self.expected.update(recipe)
+        del self.expected['key']
+        self.expected['key'] = 'tdlib-windows-x64-v1-' + bundle.fingerprint(self.expected)
+        self.export()
+        saved = bundle.cached_identity(self.cache, recipe)
+        bundle.restore(self.cache, self.root / 'restored', saved)
+        self.assertEqual(self.expected, saved)
+        with self.assertRaisesRegex(ValueError, 'build recipe mismatch'):
+            bundle.cached_identity(self.cache, {**recipe, 'buildInputs': {'build-tdlib.ps1': 'd' * 64}})
 
     def split_gcc_licenses(self, complete=True):
         (self.source / 'licenses/gcc-libs/LICENSE').unlink()

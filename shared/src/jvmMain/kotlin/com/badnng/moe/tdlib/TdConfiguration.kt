@@ -1,6 +1,9 @@
 package com.badnng.moe.tdlib
 
 import com.badnng.moe.status.FailureCategory
+import com.badnng.moe.SetupDraft
+import com.badnng.moe.SetupProxyMode
+import com.badnng.moe.SetupSnapshot
 import com.badnng.moe.readSettingsPreferences
 import com.badnng.moe.settingsEffectiveDeviceName
 import java.io.IOException
@@ -54,6 +57,7 @@ class ConfigurationStore(
     private val pathError: SetupFailure? = null,
     private val bundledApiId: String = "",
     private val bundledApiHash: String = "",
+    private val systemProxy: () -> ProxyConfiguration? = { null },
 ) {
 
     fun read(): TdConfiguration? {
@@ -77,7 +81,7 @@ class ConfigurationStore(
         if (!Files.exists(path)) {
             try {
                 Files.createDirectories(path.parent)
-                Files.writeString(path, "# Telegram application credentials; keep this file private.\napi_id=\napi_hash=\n# Optional absolute path, use forward slashes on Windows.\n# data_directory=D:/nngGram-data\nuse_test_dc=false\n# none (direct), socks5, or http (HTTP CONNECT).\nproxy_type=none\n# proxy_host=127.0.0.1\n# proxy_port=1080\n# proxy_username=\n# proxy_password=\n", StandardOpenOption.CREATE_NEW)
+                Files.writeString(path, "# Telegram application credentials; keep this file private.\napi_id=\napi_hash=\n# Optional absolute path, use forward slashes on Windows.\n# data_directory=D:/nngGram-data\nuse_test_dc=false\n# system (follow the OS proxy, direct when none), none (direct), socks5, or http (HTTP CONNECT).\nproxy_type=system\n# proxy_host=127.0.0.1\n# proxy_port=1080\n# proxy_username=\n# proxy_password=\n", StandardOpenOption.CREATE_NEW)
                 return true
             } catch (_: FileAlreadyExistsException) { /* Another caller already created it. */
             } catch (_: IOException) {
@@ -124,9 +128,10 @@ class ConfigurationStore(
     private fun parseProxy(properties: Properties): ProxyConfiguration? {
         val type = when (properties.getProperty("proxy_type", "none").trim().lowercase(Locale.ROOT)) {
             "none" -> return null
+            "system" -> return detectedSystemProxy()
             "socks5" -> ProxyType.SOCKS5
             "http" -> ProxyType.HTTP
-            else -> throw SetupFailure("代理类型无效", "proxy_type 只能填写 none、socks5 或 http。")
+            else -> throw SetupFailure("代理类型无效", "proxy_type 只能填写 system、none、socks5 或 http。")
         }
         val host = proxyHost(properties.getProperty("proxy_host", "").trim())
         val port = properties.getProperty("proxy_port", "").trim().toIntOrNull()
@@ -134,6 +139,101 @@ class ConfigurationStore(
             ?: throw SetupFailure("代理端口无效", "proxy_port 请填写 1 到 65535 之间的端口。")
         return ProxyConfiguration(type, host, port,
             properties.getProperty("proxy_username", ""), properties.getProperty("proxy_password", ""))
+    }
+
+    /** An unusable OS value is ignored rather than failing startup; the user did not type it here. */
+    private fun detectedSystemProxy(): ProxyConfiguration? = try {
+        systemProxy()?.let { ProxyConfiguration(it.type, proxyHost(it.host), it.port, it.username, it.password) }
+    } catch (_: Exception) { null }
+
+    /** Current local values for the setup guide; a bundled identity is reported, never copied out. */
+    fun setupSnapshot(): SetupSnapshot {
+        val properties = Properties()
+        try {
+            ensureTemplate()
+            Files.newBufferedReader(path).use(properties::load)
+        } catch (_: Exception) { /* The guide starts from defaults and reports the failure on save. */ }
+        fun value(name: String) = properties.getProperty(name, "").trim()
+        val mode = when (properties.getProperty("proxy_type", "none").trim().lowercase(Locale.ROOT)) {
+            "system" -> SetupProxyMode.SYSTEM
+            "socks5" -> SetupProxyMode.SOCKS5
+            "http" -> SetupProxyMode.HTTP
+            else -> SetupProxyMode.DIRECT
+        }
+        return SetupSnapshot(
+            SetupDraft(value("api_id"), value("api_hash"), mode, value("proxy_host"), value("proxy_port"),
+                properties.getProperty("proxy_username", ""), properties.getProperty("proxy_password", "")),
+            bundledIdentity = bundledApiId.isNotEmpty() && bundledApiHash.isNotEmpty(),
+            configPath = path.toString(), systemProxy = systemProxyLabel())
+    }
+
+    fun systemProxyLabel(): String? = detectedSystemProxy()?.let {
+        "${if (it.type == ProxyType.SOCKS5) "SOCKS5" else "HTTP"} ${if (':' in it.host) "[${it.host}]" else it.host}:${it.port}"
+    }
+
+    /** Validates with the startup parser, then rewrites only the guide's keys. Returns an error text or null. */
+    fun saveSetup(draft: SetupDraft): String? {
+        val manual = draft.proxyMode == SetupProxyMode.SOCKS5 || draft.proxyMode == SetupProxyMode.HTTP
+        val values = linkedMapOf(
+            "api_id" to draft.apiId.trim(), "api_hash" to draft.apiHash.trim(),
+            "proxy_type" to when (draft.proxyMode) {
+                SetupProxyMode.SYSTEM -> "system"
+                SetupProxyMode.DIRECT -> "none"
+                SetupProxyMode.SOCKS5 -> "socks5"
+                SetupProxyMode.HTTP -> "http"
+            },
+            "proxy_host" to if (manual) draft.proxyHost.trim() else null,
+            "proxy_port" to if (manual) draft.proxyPort.trim() else null,
+            "proxy_username" to if (manual && draft.proxyUsername.isNotEmpty()) draft.proxyUsername else null,
+            "proxy_password" to if (manual && draft.proxyPassword.isNotEmpty()) draft.proxyPassword else null,
+        )
+        try {
+            ensureTemplate()
+            val existing = Files.readAllLines(path)
+            val check = Properties()
+            Files.newBufferedReader(path).use(check::load)
+            values.forEach { (key, value) -> if (value == null) check.remove(key) else check.setProperty(key, value) }
+            if (parse(check) == null) return "请同时填写 api_id 和 api_hash。"
+            val written = HashSet<String>()
+            val lines = ArrayList<String>()
+            for (line in existing) {
+                val key = line.substringBefore('=').trim()
+                if (key !in values || line.trimStart().startsWith("#")) { lines.add(line); continue }
+                // Later duplicates of a managed key would override the first one in Properties.
+                val value = values[key]
+                if (value != null && written.add(key)) lines.add("$key=${escape(value)}")
+            }
+            values.forEach { (key, value) -> if (value != null && written.add(key)) lines.add("$key=${escape(value)}") }
+            val temporary = Files.createTempFile(path.parent, ".setup-", ".tmp")
+            try {
+                Files.write(temporary, lines)
+                Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } finally { Files.deleteIfExists(temporary) }
+            return null
+        } catch (failure: SetupFailure) {
+            return "${failure.summary}：${failure.recovery}"
+        } catch (_: IllegalArgumentException) {
+            return "本地配置格式无效，请检查配置文件。"
+        } catch (_: IOException) {
+            return "无法写入本地配置，请检查配置文件是否可写。"
+        } catch (_: SecurityException) {
+            return "没有本地配置写入权限。"
+        }
+    }
+
+    /** Properties escaping for a single-line value. */
+    private fun escape(value: String): String = buildString {
+        value.forEachIndexed { index, char ->
+            when {
+                char == '\\' -> append("\\\\")
+                char == '\n' -> append("\\n")
+                char == '\r' -> append("\\r")
+                char == '\t' -> append("\\t")
+                index == 0 && char == ' ' -> append("\\ ")
+                char.code > 0x7e || char.code < 0x20 -> append("\\u").append(char.code.toString(16).padStart(4, '0'))
+                else -> append(char)
+            }
+        }
     }
 
     private fun proxyHost(value: String): String {
@@ -157,14 +257,14 @@ class ConfigurationStore(
 
     companion object {
         fun default(): ConfigurationStore {
-            val root = System.getenv("LOCALAPPDATA")?.let(Path::of)
-                ?: Path.of(System.getProperty("user.home"), ".local", "share")
+            val root = com.badnng.moe.platform.DesktopPaths.applicationRoot()
             val config = System.getProperty("nnggram.config") ?: System.getenv("NNGGRAM_CONFIG")
-            val defaultPath = root.resolve("nngGram/tdlib.properties")
-            val data = root.resolve("nngGram/data")
+            val defaultPath = root.resolve("tdlib.properties")
+            val data = root.resolve("data")
             return try {
                 ConfigurationStore(config?.let(Path::of) ?: defaultPath, data,
-                    bundledApiId = BundledTelegramApi.ID, bundledApiHash = BundledTelegramApi.HASH)
+                    bundledApiId = BundledTelegramApi.ID, bundledApiHash = BundledTelegramApi.HASH,
+                    systemProxy = { SystemProxyDetector.detect() })
             } catch (_: IllegalArgumentException) {
                 ConfigurationStore(defaultPath, data, SetupFailure("配置文件路径无效", "请检查 NNGGRAM_CONFIG 或 nnggram.config 的路径设置。"))
             }
