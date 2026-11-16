@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.withTimeout
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -33,6 +34,19 @@ internal fun TestScope.completeSyntheticLocalSetup(engine: TdEngine) {
     runCurrent()
     assertNotEquals(LocalLockPhase.NEW_ROOT_SETUP, engine.localLockState.value.phase,
         "The fixture's real OPEN commit must finish before native initialization.")
+}
+
+/** Fakes using the real first-run OPEN commit accept its opaque database key. */
+internal interface FirstRunOpenKeySession : TdSession {
+    override fun setParameters(
+        config: TdConfiguration,
+        directories: DataDirectoryLease,
+        key: ByteArray,
+        result: (TdParametersResult) -> Unit,
+    ) {
+        assertEquals(32, key.size)
+        setParameters(config, directories) { result(TdParametersResult(it)) }
+    }
 }
 
 /** Real offline JVM fixtures wait for a new generation, without skipping any native assertions. */

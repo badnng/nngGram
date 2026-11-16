@@ -1106,7 +1106,7 @@ class OrdinaryAccountReadyEngineTest {
         ): TdSession {
             authorization = onAuthorization
             chatEvent = onChatEvent
-            return object : TdSession {
+            return object : FirstRunOpenKeySession {
                 override fun authorizationReady() = this@Fixture.ready
                 override val settings: TdSettingsSession = this@Fixture.settings
                 override val chats: TdChatSession = this@Fixture.chats

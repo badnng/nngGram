@@ -89,7 +89,7 @@ class SettingsDeviceNameEngineOwnerTest {
         override fun create(onAuthorization: (AuthorizationDetails) -> Unit, onConnection: (ConnectionPhase) -> Unit,
             onError: () -> Unit, onChatEvent: (ChatEvent) -> Unit): TdSession {
             authorization = onAuthorization
-            return object : TdSession {
+            return object : FirstRunOpenKeySession {
                 override fun authorizationReady() = ready
                 override val interactionGate = gate
                 override val settings: TdSettingsSession = this@Fixture.settings

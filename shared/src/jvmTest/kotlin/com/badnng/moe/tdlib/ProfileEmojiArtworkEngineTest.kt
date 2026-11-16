@@ -246,7 +246,7 @@ class ProfileEmojiArtworkEngineTest {
     }
 
     private class Session(private val authorization: (AuthorizationDetails) -> Unit,
-        val update: (ChatEvent) -> Unit, private val events: MutableList<String>) : TdSession {
+        val update: (ChatEvent) -> Unit, private val events: MutableList<String>) : FirstRunOpenKeySession {
         var ready = false
         val colors = Colors(events)
         val files = EmojiFiles(events)

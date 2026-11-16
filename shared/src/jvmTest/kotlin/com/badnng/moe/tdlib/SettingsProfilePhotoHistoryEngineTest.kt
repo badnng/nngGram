@@ -278,7 +278,7 @@ class SettingsProfilePhotoHistoryEngineTest {
             onError: () -> Unit, onChatEvent: (ChatEvent) -> Unit,
         ): TdSession {
             authorization = onAuthorization
-            return object : TdSession {
+            return object : FirstRunOpenKeySession {
                 override fun authorizationReady() = this@Fixture.ready
                 override val settings: TdSettingsSession = this@Fixture.settings
                 override val interactionGate = gate

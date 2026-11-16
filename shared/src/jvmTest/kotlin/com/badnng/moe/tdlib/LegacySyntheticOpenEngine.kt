@@ -18,12 +18,14 @@ internal fun syntheticOpenEngine(
     dispatcher: CoroutineDispatcher,
     journal: SafeEventJournal = SafeEventJournal.besideConfiguration(configuration.path),
     nowMillis: () -> Long = System::currentTimeMillis,
-): TdEngine = TdEngine(configuration, transport, dispatcher, journal, nowMillis).also { engine ->
-    engine.localLockCoordinatorFactory = { root, worker, start, changed ->
+): TdEngine = TdEngine(configuration, transport, dispatcher, journal, nowMillis).apply { useSyntheticOpenRecord() }
+
+internal fun TdEngine.useSyntheticOpenRecord() {
+    localLockCoordinatorFactory = { root, worker, start, changed ->
         LocalLockCoordinator(root, worker, start, onWitnessChanged = changed,
             persistence = SyntheticOpenPersistence(), preferences = SyntheticOpenPreferences)
     }
-    engine.localLockIdleFactory = { due, availability ->
+    localLockIdleFactory = { due, availability ->
         LocalLockIdleController(object : LocalLockIdleSource {
             override fun tickMillis() = 1_000L
             override fun lastInputDword() = 1_000L

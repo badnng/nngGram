@@ -11,6 +11,7 @@ import com.badnng.moe.status.RuntimeSnapshot
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.channels.FileChannel
 import java.nio.file.AccessDeniedException
 import java.nio.file.Files
@@ -104,7 +105,9 @@ object NativeAcceptanceProcess {
                 }
                 "missing-dll", "occupied-directory", "permission-denied" -> {
                     startSyntheticNativeEngine(engine)
-                    val snapshot = withTimeout(40_000) { engine.state.first { it.status.engine == EnginePhase.FAILED } }
+                    val snapshot = withTimeoutOrNull(40_000) { engine.state.first { it.status.engine == EnginePhase.FAILED } }
+                        ?: error("Expected setup failure: engine=${engine.state.value.status.engine}, " +
+                            "local=${engine.localLockState.value.phase}/${engine.localLockState.value.issue}")
                     assertFalse(snapshot.clientActive)
                     assertEquals(0, transport.created.get())
                     assertTrue(snapshot.canStart, "A setup failure must remain recoverable")
@@ -121,6 +124,7 @@ object NativeAcceptanceProcess {
                     } else {
                         assertNull(snapshot.native, "A denied root lease fails before native loading.")
                     }
+                    assertTrue(engine.stop(15_000), "The failed startup did not release its local root")
                     if (scenario == "occupied-directory") Files.delete(data.resolve("database"))
                     readOnlyFile?.let { Files.getFileAttributeView(it, DosFileAttributeView::class.java).setReadOnly(false) }
                     if (scenario != "missing-dll") DataDirectoryLease.acquire(data).close()
@@ -196,9 +200,14 @@ object NativeAcceptanceProcess {
             created.incrementAndGet()
             val session = delegate.create(onAuthorization, onConnection, onError, onChatEvent)
             return object : TdSession by session {
-                override fun setParameters(config: TdConfiguration, directories: DataDirectoryLease, result: (Int?) -> Unit) {
+                override fun setParameters(
+                    config: TdConfiguration,
+                    directories: DataDirectoryLease,
+                    key: ByteArray,
+                    result: (TdParametersResult) -> Unit,
+                ) {
                     parameters.incrementAndGet()
-                    session.setParameters(config, directories, result)
+                    session.setParameters(config, directories, key, result)
                 }
 
                 override fun close() {

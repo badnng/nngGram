@@ -27,6 +27,7 @@ class NativeSaveTargetEngineTest {
     @Test fun initializationIsUnknownAndAcceptedRootsBelongToTheActuallySelectedAccount() = runTest {
         withEngine { engine, f, registry ->
             val selected = f.selected()
+            engine.useSyntheticOpenRecord()
             assertTrue(engine.start()); runCurrent()
             completeSyntheticLocalSetup(engine)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside/copy.bin")))
@@ -46,13 +47,16 @@ class NativeSaveTargetEngineTest {
             f.throwCreate = true
             assertTrue(engine.start()); runCurrent()
             completeSyntheticLocalSetup(engine)
-            assertFalse(engine.state.value.clientActive)
+            assertTrue(engine.state.value.clientActive, "Entering native create keeps its unknown ownership fenced.")
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
             val closed = async(start = CoroutineStart.UNDISPATCHED) { engine.close() }
             runCurrent()
-            assertTrue(closed.await())
+            assertFalse(closed.isCompleted)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")),
                 "An exception after entering create is not evidence that a native client never existed.")
+            f.auth(AuthorizationPhase.CLOSED); runCurrent()
+            assertTrue(closed.await())
+            assertNull(registry.capture().check(f.root.resolve("outside")))
         }
     }
 
@@ -74,6 +78,10 @@ class NativeSaveTargetEngineTest {
             completeSyntheticLocalSetup(engine)
             val first = f.authorizationCallback()
             f.throwCreate = false
+            assertTrue(engine.start()); runCurrent()
+            assertFalse(f.created, "Uncertain native creation blocks a replacement until Closed.")
+            first(AuthorizationDetails(AuthorizationPhase.CLOSED)); runCurrent()
+            assertNull(registry.capture().check(f.root.resolve("outside")))
             assertTrue(engine.start()); runCurrent()
             completeSyntheticLocalSetup(engine)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
@@ -148,7 +156,7 @@ class NativeSaveTargetEngineTest {
             f.closeAutomatically = true
             val close = async(start = CoroutineStart.UNDISPATCHED) { engine.close() }
             runCurrent()
-            if (!close.isCompleted && f.created) { f.auth(AuthorizationPhase.CLOSED); runCurrent() }
+            if (!close.isCompleted && f.hasAuthorizationCallback) { f.auth(AuthorizationPhase.CLOSED); runCurrent() }
             assertTrue(close.await())
             cleanup(f.root)
         }
@@ -166,6 +174,7 @@ class NativeSaveTargetEngineTest {
         var parameters: DataDirectoryLease? = null
         var acceptParameters: ((Int?) -> Unit)? = null
         private lateinit var authorization: (AuthorizationDetails) -> Unit
+        val hasAuthorizationCallback get() = ::authorization.isInitialized
         init { Files.writeString(store.path, "api_id=12345\napi_hash=${"a".repeat(32)}\n") }
         fun selected(): Path {
             DataDirectoryLease.acquire(configured).use {
@@ -182,7 +191,7 @@ class NativeSaveTargetEngineTest {
             authorization = onAuthorization
             if (throwCreate) throw IllegalStateException("synthetic indeterminate create")
             created = true
-            return object : TdSession {
+            return object : FirstRunOpenKeySession {
                 override fun setParameters(config: TdConfiguration, directories: DataDirectoryLease, result: (Int?) -> Unit) {
                     parameters = directories; acceptParameters = result
                 }

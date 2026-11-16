@@ -221,7 +221,7 @@ class SettingsCurrentProfilePhotoEngineTest {
         override fun create(onAuthorization: (AuthorizationDetails) -> Unit, onConnection: (ConnectionPhase) -> Unit,
             onError: () -> Unit, onChatEvent: (ChatEvent) -> Unit): TdSession {
             authorization = onAuthorization
-            return object : TdSession {
+            return object : FirstRunOpenKeySession {
                 override fun authorizationReady() = this@Fixture.ready
                 override val interactionGate = gate
                 override val settings: TdSettingsSession = this@Fixture.settings
