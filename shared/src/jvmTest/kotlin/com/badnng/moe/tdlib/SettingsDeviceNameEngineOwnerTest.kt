@@ -63,6 +63,7 @@ class SettingsDeviceNameEngineOwnerTest {
         val engine = TdEngine(fixture.store, fixture, StandardTestDispatcher(testScheduler))
         try {
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             fixture.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             fixture.auth(AuthorizationPhase.READY); runCurrent()
             engine.openSettingsSecurity(engine.state.value.settings.token, SettingsSecuritySection.SESSIONS); runCurrent()

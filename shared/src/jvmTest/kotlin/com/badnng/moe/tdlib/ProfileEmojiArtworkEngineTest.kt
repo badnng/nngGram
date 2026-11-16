@@ -20,6 +20,7 @@ class ProfileEmojiArtworkEngineTest {
     @Test fun waitsForNativeReadyAndCorrelatedGetMeInsteadOfSelectingAnUpdateUser() = runTest {
         val f = fixture()
         f.engine.start(); runCurrent()
+        completeSyntheticLocalSetup(f.engine)
         val native = f.transport.sessions.single()
         native.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
         assertNull(f.engine.profileEmojiArtwork.value)
@@ -181,6 +182,7 @@ class ProfileEmojiArtworkEngineTest {
     @Test fun unconfirmedSelfFailureNeverInstallsSourceOrDownloadsFiles() = runTest {
         val f = fixture()
         f.engine.start(); runCurrent()
+        completeSyntheticLocalSetup(f.engine)
         val native = f.transport.sessions.single()
         native.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
         native.auth(AuthorizationPhase.READY); runCurrent()
@@ -207,6 +209,7 @@ class ProfileEmojiArtworkEngineTest {
 
     private fun TestScope.ready(f: Fixture) {
         assertTrue(f.engine.start()); runCurrent()
+        completeSyntheticLocalSetup(f.engine)
         val native = f.transport.sessions.last()
         native.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
         native.auth(AuthorizationPhase.READY); runCurrent()

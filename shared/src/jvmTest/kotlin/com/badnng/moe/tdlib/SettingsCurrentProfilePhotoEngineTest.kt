@@ -194,6 +194,7 @@ class SettingsCurrentProfilePhotoEngineTest {
         val f = Fixture(); val engine = TdEngine(f.store, f, StandardTestDispatcher(testScheduler))
         try {
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             f.auth(AuthorizationPhase.READY); runCurrent()
             assertTrue(engine.loadSettings(engine.state.value.settings.token, SettingsSection.PROFILE)); runCurrent()

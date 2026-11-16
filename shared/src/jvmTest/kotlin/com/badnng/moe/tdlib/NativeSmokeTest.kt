@@ -20,7 +20,7 @@ class NativeSmokeTest {
         val data = directory.resolve("用户 数据")
         val engine = TdEngine(ConfigurationStore(configPath, data), OfficialTdTransport(offline = true))
         try {
-            engine.start()
+            startSyntheticNativeEngine(engine)
             val snapshot = assertNotNull(withTimeoutOrNull(40_000) {
                 engine.state.first {
                     (it.status.authorization == AuthorizationPhase.WAITING_LOGIN && it.status.engine == EnginePhase.INITIALIZED && it.proxy == ProxyStatus.DIRECT) ||

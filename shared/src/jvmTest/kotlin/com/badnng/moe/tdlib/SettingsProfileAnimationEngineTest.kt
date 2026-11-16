@@ -380,6 +380,7 @@ class SettingsProfileAnimationEngineTest {
         try {
             if (startReady) {
                 assertTrue(engine.start()); runCurrent()
+                completeSyntheticLocalSetup(engine)
                 f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
                 f.auth(AuthorizationPhase.READY); runCurrent()
                 assertTrue(engine.loadSettings(engine.state.value.settings.token, SettingsSection.PROFILE)); runCurrent()

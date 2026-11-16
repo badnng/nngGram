@@ -252,6 +252,7 @@ class ReactionNotificationsEngineTest {
         val engine = TdEngine(f.store, f, StandardTestDispatcher(testScheduler))
         try {
             engine.start(); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             f.auth(AuthorizationPhase.READY); runCurrent()
             assertTrue(engine.state.value.settings.enabled)

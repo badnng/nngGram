@@ -23,6 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** A standalone JVM entry point: deliberately returns naturally instead of calling System.exit. */
@@ -64,7 +65,7 @@ object NativeAcceptanceProcess {
             when (scenario) {
                 "initialize", "restart" -> {
                     repeat(if (scenario == "restart") 10 else 1) { round ->
-                        repeat(100) { engine.start() }
+                        startSyntheticNativeEngine(engine, requests = 100)
                         val snapshot = awaitInitialized(engine)
                         assertNativePin(snapshot)
                         assertTrue(snapshot.clientActive)
@@ -84,25 +85,25 @@ object NativeAcceptanceProcess {
                     }
                 }
                 "missing-configuration" -> {
-                    engine.start()
+                    startSyntheticNativeEngine(engine)
                     val snapshot = withTimeout(40_000) {
                         engine.state.first {
                             it.status.engine == EnginePhase.WAITING_CONFIGURATION || it.status.engine == EnginePhase.FAILED
                         }
                     }
                     assertEquals(EnginePhase.WAITING_CONFIGURATION, snapshot.status.engine, snapshot.status.failure?.toString())
-                    assertNativePin(snapshot)
+                    assertNull(snapshot.native, "Unconfigured startup must wait before loading native code.")
                     assertFalse(snapshot.clientActive)
                     assertEquals(0, transport.created.get())
                     assertFalse(Files.exists(data), "Missing credentials should not create a database")
                     Files.writeString(config, "api_id=1\napi_hash=${"0".repeat(32)}\nuse_test_dc=true\n")
-                    engine.start()
+                    startSyntheticNativeEngine(engine)
                     assertNativePin(awaitInitialized(engine))
                     assertTrue(engine.stop(15_000))
                     DataDirectoryLease.acquire(data).close()
                 }
                 "missing-dll", "occupied-directory", "permission-denied" -> {
-                    engine.start()
+                    startSyntheticNativeEngine(engine)
                     val snapshot = withTimeout(40_000) { engine.state.first { it.status.engine == EnginePhase.FAILED } }
                     assertFalse(snapshot.clientActive)
                     assertEquals(0, transport.created.get())
@@ -115,14 +116,16 @@ object NativeAcceptanceProcess {
                     )
                     if (scenario == "missing-dll") {
                         assertTrue(snapshot.status.failure!!.summary.contains("缺少原生依赖"))
-                    } else {
+                    } else if (scenario == "occupied-directory") {
                         assertNativePin(snapshot)
+                    } else {
+                        assertNull(snapshot.native, "A denied root lease fails before native loading.")
                     }
                     if (scenario == "occupied-directory") Files.delete(data.resolve("database"))
                     readOnlyFile?.let { Files.getFileAttributeView(it, DosFileAttributeView::class.java).setReadOnly(false) }
                     if (scenario != "missing-dll") DataDirectoryLease.acquire(data).close()
                     if (scenario == "missing-dll") System.setProperty("nnggram.tdlib.dir", nativeDirectory)
-                    engine.start()
+                    startSyntheticNativeEngine(engine)
                     assertNativePin(awaitInitialized(engine))
                     assertEquals(1, transport.created.get(), "A repaired setup failure must create exactly one client")
                     assertTrue(engine.stop(15_000), "The recovered native client did not close")

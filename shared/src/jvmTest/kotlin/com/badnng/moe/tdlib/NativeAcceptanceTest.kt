@@ -28,7 +28,7 @@ class NativeAcceptanceTest {
     }
 
     @Test
-    fun missingConfigurationLoadsNativeDiagnosticsWithoutCreatingAClient() {
+    fun missingConfigurationWaitsBeforeLoadingNativeOrCreatingAClient() {
         runChild("missing-configuration", fixture("未填写配置"))
     }
 

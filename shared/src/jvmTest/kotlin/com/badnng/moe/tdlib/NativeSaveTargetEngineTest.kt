@@ -28,6 +28,7 @@ class NativeSaveTargetEngineTest {
         withEngine { engine, f, registry ->
             val selected = f.selected()
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside/copy.bin")))
             f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             assertEquals(selected.resolve("files"), f.parameters!!.files)
@@ -44,6 +45,7 @@ class NativeSaveTargetEngineTest {
         withEngine { engine, f, registry ->
             f.throwCreate = true
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             assertFalse(engine.state.value.clientActive)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
             val closed = async(start = CoroutineStart.UNDISPATCHED) { engine.close() }
@@ -58,6 +60,7 @@ class NativeSaveTargetEngineTest {
         withEngine { engine, f, registry ->
             f.throwCreate = true
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
             f.auth(AuthorizationPhase.CLOSED); runCurrent()
             assertNull(registry.capture().check(f.root.resolve("outside")))
@@ -68,9 +71,11 @@ class NativeSaveTargetEngineTest {
         withEngine { engine, f, registry ->
             f.throwCreate = true
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             val first = f.authorizationCallback()
             f.throwCreate = false
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
             first(AuthorizationDetails(AuthorizationPhase.CLOSED)); runCurrent()
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
@@ -83,6 +88,7 @@ class NativeSaveTargetEngineTest {
     @Test fun stopAndTimeoutKeepTheKnownFenceUntilTheRealClosedCallback() = runTest {
         withEngine { engine, f, registry ->
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             f.acceptParameters!!(null); runCurrent()
             f.auth(AuthorizationPhase.READY); runCurrent()
@@ -101,6 +107,7 @@ class NativeSaveTargetEngineTest {
     @Test fun rejectedParametersAndFailedCloseCannotPretendThatNativeRootsAreClosed() = runTest {
         withEngine { engine, f, registry ->
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             f.throwClose = true
             f.acceptParameters!!(400); runCurrent()
@@ -116,6 +123,7 @@ class NativeSaveTargetEngineTest {
     @Test fun aPreviousGenerationClosedCallbackCannotRetireTheNewClientFence() = runTest {
         withEngine { engine, f, registry ->
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             val oldCallback = f.authorizationCallback()
             f.closeAutomatically = false
             val stop = async(start = CoroutineStart.UNDISPATCHED) { engine.stop() }
@@ -123,6 +131,7 @@ class NativeSaveTargetEngineTest {
             f.auth(AuthorizationPhase.CLOSED); runCurrent()
             assertTrue(stop.await())
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             oldCallback(AuthorizationDetails(AuthorizationPhase.CLOSED)); runCurrent()
             assertEquals(SaveTargetIssue.UNKNOWN_NATIVE_ROOTS, registry.capture().check(f.root.resolve("outside")))
             f.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()

@@ -48,3 +48,4 @@ __pycache__/
 .env.*
 !.env.example
 /signing-local/
+/.gradle-user-craft/

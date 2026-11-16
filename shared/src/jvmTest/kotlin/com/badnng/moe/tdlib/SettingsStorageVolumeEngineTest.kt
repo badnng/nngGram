@@ -33,6 +33,7 @@ class SettingsStorageVolumeEngineTest {
         withEngine(nativeRoots = true, selectAttempt = true) { engine, f, worker, queried ->
             val expected = checkNotNull(f.selected).resolve("files")
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.current.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             assertEquals(expected, f.current.parameters!!.files)
             f.current.auth(AuthorizationPhase.READY); runCurrent()
@@ -53,6 +54,7 @@ class SettingsStorageVolumeEngineTest {
     @Test fun ordinaryFakeNeverInfersNativeFilesFromItsLeaseOrSnapshot() = runTest {
         withEngine(nativeRoots = false) { engine, f, worker, queried ->
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.current.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             f.current.acceptParameters!!(null); runCurrent()
             f.current.auth(AuthorizationPhase.READY); runCurrent()
@@ -146,6 +148,7 @@ class SettingsStorageVolumeEngineTest {
     @Test fun aRejectedNativeParameterNeverBecomesAVolumeSource() = runTest {
         withEngine(nativeRoots = true) { engine, f, worker, queried ->
             assertTrue(engine.start()); runCurrent()
+            completeSyntheticLocalSetup(engine)
             f.current.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
             f.current.auth(AuthorizationPhase.READY); runCurrent()
             val status = mutableListOf<SettingsStorageToken?>()
@@ -369,6 +372,7 @@ class SettingsStorageVolumeEngineTest {
 
     private suspend fun TestScope.ready(engine: TdEngine, f: Fixture) {
         assertTrue(engine.start()); runCurrent()
+        completeSyntheticLocalSetup(engine)
         f.current.auth(AuthorizationPhase.WAITING_PARAMETERS); runCurrent()
         f.current.acceptParameters!!(null); runCurrent()
         f.current.auth(AuthorizationPhase.READY); runCurrent()
