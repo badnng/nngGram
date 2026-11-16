@@ -13,7 +13,10 @@ import zipfile
 
 DLLS = {'tdjni.dll', 'libwinpthread-1.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll',
         'libcrypto-3-x64.dll', 'libssl-3-x64.dll', 'zlib1.dll'}
-TOP_FILES = DLLS | {'tdlib.jar', 'manifest.properties', 'TDLib-LICENSE.txt', 'toolchain-versions.txt'}
+# MSYS2's zlib 1.4 links against libz-1.dll; earlier toolchains used zlib1.dll. Exactly one is bundled.
+ZLIB_NAMES = {'zlib1.dll', 'libz-1.dll'}
+OTHER_FILES = {'tdlib.jar', 'manifest.properties', 'TDLib-LICENSE.txt', 'toolchain-versions.txt'}
+TOP_FILES = DLLS | ZLIB_NAMES | OTHER_FILES
 LICENSE_LAYOUT = json.loads((Path(__file__).resolve().parents[2] / 'native/tdlib-license-layout.json').read_text(encoding='utf-8'))
 LICENSE_GROUPS = LICENSE_LAYOUT['groups']
 LICENSE_PACKAGES = {package for group in LICENSE_GROUPS for alternative in group['alternatives'] for package in alternative}
@@ -104,8 +107,13 @@ def verify_pe(path):
 
 def validate_bundle(bundle, expected):
     files = regular_files(bundle)
-    if not TOP_FILES.issubset(files) or not all(allowed(name) for name in files):
-        raise ValueError('Bundle is incomplete or contains unexpected files')
+    zlib = ZLIB_NAMES & set(files)
+    dlls = (DLLS - ZLIB_NAMES) | zlib
+    missing = sorted((dlls | OTHER_FILES) - set(files)) + ([] if len(zlib) == 1 else ['exactly one of ' + ' / '.join(sorted(ZLIB_NAMES))])
+    unexpected = sorted(name for name in files if not allowed(name))
+    if missing or unexpected:
+        raise ValueError(f"Bundle is incomplete or contains unexpected files; missing: {', '.join(missing) or '(none)'}; "
+                         f"unexpected: {', '.join(unexpected) or '(none)'}")
     present = {name.split('/')[1] for name in files if name.startswith('licenses/')}
     for group in LICENSE_GROUPS:
         if not any(set(alternative).issubset(present) for alternative in group['alternatives']):
@@ -120,12 +128,12 @@ def validate_bundle(bundle, expected):
     if any(manifest.get(key) != value for key, value in required.items()):
         raise ValueError('TDLib manifest does not match the current source/toolchain')
     order = manifest.get('load.order', '').split(',')
-    if len(order) != len(DLLS) or set(order) != DLLS or order[-1] != 'tdjni.dll':
+    if len(order) != len(dlls) or set(order) != dlls or order[-1] != 'tdjni.dll':
         raise ValueError('Invalid complete DLL load order')
     hashes = {key[7:]: value for key, value in manifest.items() if key.startswith('sha256.')}
-    if set(hashes) != DLLS | {'tdlib.jar'} or any(hashes[name] != digest(files[name]) for name in hashes):
+    if set(hashes) != dlls | {'tdlib.jar'} or any(hashes[name] != digest(files[name]) for name in hashes):
         raise ValueError('TDLib manifest hash mismatch')
-    for name in DLLS:
+    for name in dlls:
         verify_pe(files[name])
     with zipfile.ZipFile(files['tdlib.jar']) as jar:
         names = jar.namelist()
