@@ -188,7 +188,7 @@ jobs:
         shell: pwsh
         run: |
           $nativeExe = (Resolve-Path 'desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram/nngGram.exe').Path
-          $translatorDirectory = Join-Path (Split-Path -Parent $nativeExe) 'resources/translation'
+          $translatorDirectory = Join-Path (Split-Path -Parent $nativeExe) 'translation'
           Push-Location -LiteralPath $translatorDirectory
           try {
             $detected = 'Hello, this is an English sentence.' | & .\nnggram-translator.exe --detect
