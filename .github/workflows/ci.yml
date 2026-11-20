@@ -188,6 +188,12 @@ jobs:
         shell: pwsh
         run: |
           $nativeExe = (Resolve-Path 'desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram/nngGram.exe').Path
+          $translatorDirectory = Join-Path (Split-Path -Parent $nativeExe) 'resources/translation'
+          Push-Location -LiteralPath $translatorDirectory
+          try {
+            $detected = 'Hello, this is an English sentence.' | & .\nnggram-translator.exe --detect
+            if ($LASTEXITCODE -ne 0 -or $detected -ne 'en') { throw 'Packaged translator smoke failed.' }
+          } finally { Pop-Location }
           foreach ($mode in @('tdlib', 'platform', 'media')) {
             $report = Join-Path $env:RUNNER_TEMP "ci-$mode-native-result.txt"
             $process = Start-Process -FilePath $nativeExe -ArgumentList @("--$mode-native-smoke", "`"$report`"") -Wait -PassThru -WindowStyle Hidden

@@ -39,7 +39,7 @@ def main():
     subprocess.run([helper, "--version"], check=True)
     detected = subprocess.run(
         [helper, "--detect"], input="Hello, this is an English sentence.\n",
-        text=True, capture_output=True, check=True,
+        cwd=destination, text=True, capture_output=True, check=True,
     ).stdout.strip()
     if detected != "en":
         raise RuntimeError(f"Language detection smoke test returned {detected!r}, expected 'en'.")

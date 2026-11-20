@@ -33,6 +33,10 @@ list(FILTER fasttext_sources EXCLUDE REGEX "/main[.]cc$")
 add_library(translation_language_detector STATIC ${fasttext_sources})
 target_include_directories(translation_language_detector PUBLIC "${fasttext_SOURCE_DIR}/src")
 target_link_libraries(translation_language_detector PRIVATE Threads::Threads)
+# The pinned fastText sources use fixed-width integers without including their header.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(translation_language_detector PRIVATE -include cstdint)
+endif()
 
 add_executable(nnggram-translator main.cpp)
 target_include_directories(nnggram-translator PRIVATE "${sentencepiece_SOURCE_DIR}/src")
