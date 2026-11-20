@@ -402,8 +402,11 @@ class SettingsProfileStickerAvatarMediaEngineTest {
             assertNull(engine.profileStickerAvatarMedia.value)
             checkNotNull(f.chats.me).invoke(ChatResult(AccountProfile(43, "Synthetic self"))); runCurrent()
             assertNotNull(engine.profileStickerAvatarMedia.value)
-            assertTrue(engine.loadSettings(engine.state.value.settings.token, SettingsSection.PROFILE)); runCurrent()
-            assertEquals(43L, engine.state.value.settings.profile?.userId)
+            val token = engine.state.value.settings.token
+            assertTrue(engine.loadSettings(token, SettingsSection.PROFILE))
+            assertNotNull(withTimeoutOrNull(5_000) {
+                engine.state.first { it.settings.token == token && it.settings.profile?.userId == 43L }
+            }, "The synthetic profile did not finish loading for the current settings session.")
             block(engine, f)
         } finally {
             f.closeImmediately = true
