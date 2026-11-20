@@ -73,6 +73,8 @@ IDE 的普通 Gradle 运行与 `hotRun` 均会自动传入项目 `native/windows
 
 在「设置 → 聊天设置 → 群组翻译」选择「自定义在线接口」，填入服务的根地址或完整的 `/translate` 地址。远程服务使用 HTTPS，本机服务也可用 HTTP。你可以直接使用 LibreTranslate，或者用任意语言实现下面的接口。
 
+可以从常用语言中选择，也可以填写服务支持的语言代码，例如 `zh-Hans`。客户端会把自定义代码原样传给服务。
+
 `POST /translate` 接收 UTF-8 JSON。以原文自动识别、目标简体中文为例。
 
 ```json

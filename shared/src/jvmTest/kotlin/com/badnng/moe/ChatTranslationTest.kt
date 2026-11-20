@@ -70,10 +70,14 @@ class ChatTranslationTest {
         val directory = Files.createTempDirectory("chat-translation")
         val file = directory.resolve("settings.properties")
         try {
-            val preferences = ChatTranslationPreferences("https://translations.example/api/translate", "ja", "zh", true,
+            val preferences = ChatTranslationPreferences("https://translations.example/api/translate", "ja", "zh-Hant", true,
                 provider = ChatTranslationProvider.LIBRE_TRANSLATE, automatic = true)
             assertTrue(writeSettingsPreferences(file, SettingsPreferences(translation = preferences)))
             assertEquals(preferences, readSettingsPreferences(file).translation)
+            assertEquals("pt-BR", normalizeTranslationLanguage(" pt-BR ", allowAuto = false))
+            assertEquals("auto", normalizeTranslationLanguage("AUTO", allowAuto = true))
+            assertNull(normalizeTranslationLanguage("AUTO", allowAuto = false))
+            assertNull(normalizeTranslationLanguage("zh / invalid", allowAuto = false))
             assertEquals("https://translations.example/api/translate", normalizeChatTranslationServer("https://translations.example/api/"))
             assertNull(normalizeChatTranslationServer("http://translations.example/translate"))
             assertNull(normalizeChatTranslationServer("//translations.example/translate"))

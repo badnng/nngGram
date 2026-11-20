@@ -56,10 +56,21 @@ internal fun SettingsChatTranslation(preferences: ChatTranslationPreferences, on
             val label = if (isSource) "原文语言" else "目标语言"
             val selected = if (isSource) preferences.effectiveSource else preferences.effectiveTarget
             val selectable = !offline || isSource
-            SettingsRow(label, chatTranslationLanguages.getValue(selected), enabled = active,
+            SettingsRow(label, chatTranslationLanguages[selected] ?: selected, enabled = active,
                 onClick = if (selectable) ({ editingLanguage = label.takeUnless { editingLanguage == label } }) else null)
             if (selectable && editingLanguage == label) {
                 Column(Modifier.padding(start = 16.dp)) {
+                    if (!offline) {
+                        var custom by remember(selected) { mutableStateOf(selected.takeUnless(chatTranslationLanguages::containsKey).orEmpty()) }
+                        val language = normalizeTranslationLanguage(custom, allowAuto = isSource)
+                        TextField(custom, { custom = it }, label = "自定义语言代码", modifier = Modifier.fillMaxWidth(),
+                            enabled = active, singleLine = true)
+                        if (custom.isNotBlank() && language == null) SettingsNote("请输入服务支持的语言代码，例如 zh-Hans。", error = true)
+                        if (language != null && language != selected) ChatButton("使用此语言", enabled = active) {
+                            editingLanguage = null
+                            onChange(if (isSource) preferences.copy(source = language) else preferences.copy(target = language))
+                        }
+                    }
                     chatTranslationLanguages.forEach { (code, name) ->
                         val available = if (offline) code == "auto" || code == "en" else isSource || code != "auto"
                         if (available) SettingsRow(name, if (code == selected) "已选中" else null, enabled = active) {
@@ -102,7 +113,7 @@ internal fun ConversationTranslationBar(
         state.pending -> "正在翻译…"
         unavailable -> "部分消息无法翻译"
         settings.provider == ChatTranslationProvider.OFFLINE -> "离线英译中"
-        else -> "译为${chatTranslationLanguages.getValue(settings.effectiveTarget)}"
+        else -> "译为${chatTranslationLanguages[settings.effectiveTarget] ?: settings.effectiveTarget}"
     }
     Row(Modifier.fillMaxWidth().padding(top = 8.dp).chatSurface().padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

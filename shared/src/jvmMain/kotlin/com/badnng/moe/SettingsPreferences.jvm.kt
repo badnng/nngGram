@@ -46,8 +46,8 @@ internal fun readSettingsPreferences(path: Path): SettingsPreferences = try {
             customDeviceModel = values.getProperty("custom-device-model")?.takeIf(::validSettingsDeviceName).orEmpty(),
             translation = ChatTranslationPreferences(
                 server = translationServer,
-                source = values.getProperty("translation-source")?.takeIf { it in chatTranslationLanguages } ?: "auto",
-                target = values.getProperty("translation-target")?.takeIf { it != "auto" && it in chatTranslationLanguages } ?: "zh",
+                source = values.getProperty("translation-source")?.let { normalizeTranslationLanguage(it, allowAuto = true) } ?: "auto",
+                target = values.getProperty("translation-target")?.let { normalizeTranslationLanguage(it, allowAuto = false) } ?: "zh",
                 showOriginal = values.getProperty("translation-show-original")?.toBooleanStrictOrNull() ?: false,
                 provider = ChatTranslationProvider.entries.firstOrNull { it.name == values.getProperty("translation-provider") }
                     ?: if (translationServer.isNotEmpty()) ChatTranslationProvider.LIBRE_TRANSLATE else ChatTranslationProvider.OFFLINE,

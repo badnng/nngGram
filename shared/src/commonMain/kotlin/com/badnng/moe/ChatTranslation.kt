@@ -47,6 +47,14 @@ internal val chatTranslationLanguages = linkedMapOf(
     "uk" to "乌克兰语", "pl" to "波兰语", "nl" to "荷兰语",
 )
 
+private val translationLanguagePattern = Regex("[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8})*")
+
+internal fun normalizeTranslationLanguage(input: String, allowAuto: Boolean): String? {
+    val code = input.trim()
+    if (code.equals("auto", ignoreCase = true)) return if (allowAuto) "auto" else null
+    return code.takeIf { it.length <= 35 && translationLanguagePattern.matches(it) }
+}
+
 internal expect fun normalizeChatTranslationServer(input: String): String?
 
 internal sealed interface ChatTranslationResult {
