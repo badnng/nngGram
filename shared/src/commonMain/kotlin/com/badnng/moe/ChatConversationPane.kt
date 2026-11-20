@@ -88,6 +88,7 @@ internal fun ConversationPane(
     sessionMemory: ConversationSessionMemory = remember(snapshot.token.generation) { ConversationSessionMemory() },
     onOpenReply: ((ChatMessage, ConversationReadPosition?) -> Unit)? = null,
     onReplyReturn: (() -> Unit)? = null,
+    onTranslationSettings: () -> Unit = {},
 ) {
     // Navigation ownership is independent of activity: a popup pauses the timeline
     // while remaining interactive, whereas a departing page must close every popup.
@@ -302,6 +303,20 @@ internal fun ConversationPane(
                 }.toSet()
         }
     }
+    val translationSettings = LocalSettingsPreferences.current.translation
+    val translationSupported = chat.supportsTranslation()
+    val translationKey = chat.id to translationSettings.identity
+    val translating = translationSupported &&
+        translationSettings.enabledForGroup(sessionMemory.translationOverrides[translationKey])
+    val translationMessages = {
+        val latest = currentSnapshot
+        if (latest.token != token || latest.selected?.supportsTranslation() != true) emptyList()
+        else latest.messages.asReversed().mapNotNull { message ->
+            if (message.chatId == chat.id && message.id in visibleIds) message.translationMessage() else null
+        }
+    }
+    val translations = rememberConversationTranslation(translationSettings, translating,
+        reading && !outgoingWindow && snapshot.enabled, translationMessages)
     val currentVisibleAction by rememberUpdatedState(features.visibleMessages)
     LaunchedEffect(token, pageInteractive, outgoingWindow) {
         val position = pendingEntryPosition
@@ -743,6 +758,9 @@ internal fun ConversationPane(
                                         },
                                     highlighted = highlightedMessageId == message.id,
                                     horizontalContentPadding = horizontalPadding,
+                                    translation = if (translating)
+                                        (translations.result(message.translationMessage()) as? ChatTranslationResult.Translated)?.text else null,
+                                    showTranslationOriginal = translationSettings.showOriginal,
                                     read = message.outgoing && message.delivery == MessageDelivery.SENT && message.id <= chat.lastReadOutboxId,
                                     pageInteractive = pageInteractive && !outgoingWindow,
                                     onRetry = { if (currentPageInteractive) onRetry(message.id) }, snapshot = snapshot, features = features,
@@ -908,6 +926,20 @@ internal fun ConversationPane(
                         onTogglePinned = { if (currentPageInteractive) pinnedHidden = !pinnedHidden }, pinnedHidden = pinnedHidden,
                         onMenuDismissFinished = { if (!conversationMenuOpen) conversationMenuMounted = false },
                         adminsPopup = adminsPopup)
+                    if (translationSupported) ConversationTranslationBar(translating, pageInteractive, translationSettings, translations,
+                        unavailable = translating && translationMessages().any { translations.result(it) == ChatTranslationResult.Unsupported },
+                        onToggle = {
+                            if (currentPageInteractive && currentSnapshot.selected?.supportsTranslation() == true) {
+                                when {
+                                    translationSettings.identity.isEmpty() -> onTranslationSettings()
+                                    translating -> sessionMemory.translationOverrides[translationKey] = false
+                                    else -> {
+                                        translations.retry()
+                                        sessionMemory.translationOverrides[translationKey] = true
+                                    }
+                                }
+                            }
+                        })
                     ChatReportSpamPanel(snapshot, features, pageInteractive = pageInteractive,
                         modifier = Modifier.padding(top = 8.dp))
                     if (!pinnedHidden) PinnedMessageBar(snapshot, features,
@@ -1345,6 +1377,8 @@ internal fun MessageBubble(
     reserveAvatarSpace: Boolean = !message.outgoing,
     horizontalContentPadding: Dp = 0.dp,
     onSaveAs: ((String, String) -> Unit)? = null,
+    translation: String? = null,
+    showTranslationOriginal: Boolean = false,
 ) {
     val compactLayout = LocalDesktopChatLayout.current.compact
     val senderAvatarSize = 33.dp
@@ -1479,7 +1513,7 @@ internal fun MessageBubble(
                             selectionState = selectionState, copyAllowed = copyAllowed,
                             currentSnapshot = { currentBubbleSnapshot }, onOpenLink = onOpenLink,
                             onEnlarge = { onEnlarge(checkNotNull(message.media)) }, onJumpToReply = onJumpToReply,
-                            onRetry = onRetry)
+                            onRetry = onRetry, translation = translation, showTranslationOriginal = showTranslationOriginal)
                     } else {
                         val surface = if (unwrapped) Modifier else Modifier
                             .chatSquircleBackground(if (message.outgoing) lerp(MiuixTheme.colorScheme.surfaceContainer, MiuixTheme.colorScheme.primary, 0.1f)
@@ -1505,16 +1539,18 @@ internal fun MessageBubble(
                             val captionAbove = message.showCaptionAboveMedia && content.text.isNotEmpty() &&
                                 message.kind in setOf(MessageKind.PHOTO, MessageKind.VIDEO, MessageKind.ANIMATION) && media != null
                             val textBody: @Composable ((androidx.compose.ui.text.TextLayoutResult) -> Unit) -> Unit = { reportLayout ->
-                                MessageBodyInteractionProvider(message, snapshot, pageInteractive,
-                                    currentSnapshot = { currentBubbleSnapshot }, openLink = onOpenLink) {
-                                    InlineMessageEmojiProvider(snapshot, features, visible, active = animate) {
-                                        RichMessageBody(content, selectionState = selectionState, allowCopy = copyAllowed,
-                                            canCopyNow = {
-                                                val latest = currentBubbleSnapshot
-                                                val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
-                                                latest.token == snapshot.token && latest.selected?.id == message.chatId &&
-                                                    latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
-                                            }, onTextLayout = reportLayout)
+                                TranslatedMessageBody(translation, showTranslationOriginal, reportLayout) { originalLayout ->
+                                    MessageBodyInteractionProvider(message, snapshot, pageInteractive,
+                                        currentSnapshot = { currentBubbleSnapshot }, openLink = onOpenLink) {
+                                        InlineMessageEmojiProvider(snapshot, features, visible, active = animate) {
+                                            RichMessageBody(content, selectionState = selectionState, allowCopy = copyAllowed,
+                                                canCopyNow = {
+                                                    val latest = currentBubbleSnapshot
+                                                    val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
+                                                    latest.token == snapshot.token && latest.selected?.id == message.chatId &&
+                                                        latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
+                                                }, onTextLayout = originalLayout)
+                                        }
                                     }
                                 }
                             }
@@ -1580,11 +1616,11 @@ internal fun MessageBubble(
                                     metadata = if (animatedEmoji) ({}) else metadata)
                             }
                             if (!animatedEmoji && message.text.isNotEmpty() && !captionAbove) MessageTextFooterLayout(
-                                canInline = media == null && message.reactions.isEmpty() && content.entities.none {
+                                canInline = translation == null && media == null && message.reactions.isEmpty() && content.entities.none {
                                     it.kind == MessageEntityKind.PRE || it.kind == MessageEntityKind.BLOCK_QUOTE ||
                                         it.kind == MessageEntityKind.EXPANDABLE_BLOCK_QUOTE
                                 },
-                                layoutKey = content,
+                                layoutKey = content to translation,
                                 body = textBody, footer = footer,
                             ) else footer()
                             if (message.delivery == MessageDelivery.FAILED) {

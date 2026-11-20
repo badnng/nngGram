@@ -67,6 +67,9 @@ if ($AppVersion) { $arguments += "-PnnggramVersion=$AppVersion" }
 if ($MsvcRoot) { $arguments += "-PwindowsRc=$(Join-Path $sdkBin 'rc.exe')" }
 Push-Location $workspace
 try {
+    & python (Join-Path $workspace 'scripts/build-offline-translator.py')
+    if ($LASTEXITCODE -ne 0) { throw "Offline translator build failed ($LASTEXITCODE)." }
+
     # Kotlin compilation retains a large heap in its Gradle JVM. Finish that JVM
     # before Native Image starts, leaving the hosted runner room for its builder.
     # Single-use daemons avoid stopping or reconfiguring an IDE's existing daemon.

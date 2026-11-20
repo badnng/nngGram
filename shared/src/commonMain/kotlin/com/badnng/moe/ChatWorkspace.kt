@@ -88,6 +88,7 @@ internal fun ChatWorkspace(
     onSettingsFolderPreferences: ((ChatFolderPreferences) -> Unit)? = null,
     onLockNow: (() -> Unit)? = null,
     onOwnedDarkTheme: ((Boolean, () -> Boolean) -> Unit)? = null,
+    onTranslationSettings: () -> Unit = onSettings,
 ) {
     fun updateDraft(chatId: Long, value: TextFieldValue) {
         draftRevisions.changed(chatId, drafts[chatId], value)
@@ -366,6 +367,7 @@ internal fun ChatWorkspace(
                                     readDraft = { drafts[selectedChat.id] ?: TextFieldValue() },
                                     readDraftRevision = { draftRevisions.revision(selectedChat.id) },
                                     sessionMemory = conversationMemory,
+                                    onTranslationSettings = onTranslationSettings,
                                     onOpenReply = { source, position ->
                                         source.replyTo?.let { reply ->
                                             position?.let {

@@ -26,6 +26,7 @@ internal fun readSettingsPreferences(path: Path): SettingsPreferences = try {
     if (!Files.isRegularFile(path)) SettingsPreferences() else {
         val values = Properties().apply { Files.newBufferedReader(path).use(::load) }
         val themeState = decodeSettingsTheme(values.stringPropertyNames().associateWith { values.getProperty(it) })
+        val translationServer = values.getProperty("translation-server")?.let(::normalizeChatTranslationServer).orEmpty()
         SettingsPreferences(
             theme = ColorSchemeMode.valueOf(settingsMiuixModeName(initialSettingsThemeState(themeState, null))),
             manualThemeDark = themeState.manualDark,
@@ -43,6 +44,16 @@ internal fun readSettingsPreferences(path: Path): SettingsPreferences = try {
                     .takeIf { it.valid }
             } ?: SettingsChatFont(),
             customDeviceModel = values.getProperty("custom-device-model")?.takeIf(::validSettingsDeviceName).orEmpty(),
+            translation = ChatTranslationPreferences(
+                server = translationServer,
+                source = values.getProperty("translation-source")?.takeIf { it in chatTranslationLanguages } ?: "auto",
+                target = values.getProperty("translation-target")?.takeIf { it != "auto" && it in chatTranslationLanguages } ?: "zh",
+                showOriginal = values.getProperty("translation-show-original")?.toBooleanStrictOrNull() ?: false,
+                provider = ChatTranslationProvider.entries.firstOrNull { it.name == values.getProperty("translation-provider") }
+                    ?: if (translationServer.isNotEmpty()) ChatTranslationProvider.LIBRE_TRANSLATE else ChatTranslationProvider.OFFLINE,
+                automatic = values.getProperty("translation-automatic")?.toBooleanStrictOrNull() ?: false,
+                offlineSource = values.getProperty("translation-offline-source")?.takeIf { it == "en" } ?: "auto",
+            ),
         )
     }
 } catch (_: Exception) { SettingsPreferences() }
@@ -79,6 +90,14 @@ internal fun writeSettingsPreferencesIfCurrent(path: Path, preferences: Settings
             setProperty("font-mode", preferences.chatFont.mode.name)
             preferences.chatFont.familyName?.let { setProperty("font-family", it) }
             preferences.customDeviceModel.takeIf(String::isNotEmpty)?.let { setProperty("custom-device-model", it) }
+            val translation = preferences.translation
+            translation.server.takeIf(String::isNotEmpty)?.let { setProperty("translation-server", it) }
+            setProperty("translation-source", translation.source)
+            setProperty("translation-target", translation.target)
+            setProperty("translation-show-original", translation.showOriginal.toString())
+            setProperty("translation-provider", translation.provider.name)
+            setProperty("translation-automatic", translation.automatic.toString())
+            setProperty("translation-offline-source", translation.offlineSource)
         }
         Files.newBufferedWriter(temp).use { values.store(it, "Local desktop settings") }
         // No non-atomic fallback: a failed replacement leaves the old preferences intact.

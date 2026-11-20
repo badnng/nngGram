@@ -74,6 +74,7 @@ kotlin {
             implementation(libs.bouncycastle.bcprov)
             implementation(files(rootProject.file(hostTdlibBundle)))
             implementation(libs.kotlinx.coroutinesCore)
+            implementation(libs.kotlinx.serializationJson)
         }
         jvmTest.dependencies {
             implementation(libs.kotlinx.coroutinesTest)

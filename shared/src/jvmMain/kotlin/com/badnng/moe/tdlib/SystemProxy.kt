@@ -16,29 +16,46 @@ object SystemProxyDetector {
         platform: DesktopPlatform = DesktopPlatform.current,
         environment: Map<String, String> = System.getenv(),
         run: (List<String>) -> String? = ::runCommand,
+    ): ProxyConfiguration? = detect(platform, environment, run, preferHttp = false)
+
+    internal fun detectForHttp(
+        platform: DesktopPlatform = DesktopPlatform.current,
+        environment: Map<String, String> = System.getenv(),
+        run: (List<String>) -> String? = ::runCommand,
+    ): ProxyConfiguration? = detect(platform, environment, run, preferHttp = true)
+
+    private fun detect(
+        platform: DesktopPlatform,
+        environment: Map<String, String>,
+        run: (List<String>) -> String?,
+        preferHttp: Boolean,
     ): ProxyConfiguration? = when {
-        platform.isWindows -> windows(run) ?: environment(environment)
-        platform.isMacOS -> macOS(run) ?: environment(environment)
-        else -> environment(environment) ?: gnome(run)
+        platform.isWindows -> windows(run, preferHttp) ?: environment(environment, preferHttp)
+        platform.isMacOS -> macOS(run, preferHttp) ?: environment(environment, preferHttp)
+        else -> environment(environment, preferHttp) ?: gnome(run, preferHttp)
     }
 
-    internal fun environment(environment: Map<String, String>): ProxyConfiguration? =
-        listOf("ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
+    internal fun environment(environment: Map<String, String>, preferHttp: Boolean = false): ProxyConfiguration? {
+        val all = listOf("ALL_PROXY", "all_proxy")
+        val web = listOf("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
+        return (if (preferHttp) web + all else all + web)
             .firstNotNullOfOrNull { name -> environment[name]?.let(::fromUrl) }
+    }
 
     /** `scutil --proxy` prints `Key : value` rows; SOCKS is preferred because TDLib speaks MTProto, not HTTP. */
-    internal fun macOS(run: (List<String>) -> String?): ProxyConfiguration? {
+    internal fun macOS(run: (List<String>) -> String?, preferHttp: Boolean = false): ProxyConfiguration? {
         val values = run(listOf("scutil", "--proxy"))?.lineSequence()?.mapNotNull { line ->
             val parts = line.split(" : ", limit = 2)
             if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
         }?.toMap() ?: return null
         fun entry(prefix: String, type: ProxyType): ProxyConfiguration? =
             if (values["${prefix}Enable"] == "1") proxy(type, values["${prefix}Proxy"], values["${prefix}Port"]) else null
-        return entry("SOCKS", ProxyType.SOCKS5) ?: entry("HTTPS", ProxyType.HTTP) ?: entry("HTTP", ProxyType.HTTP)
+        return preferred(preferHttp, socks = { entry("SOCKS", ProxyType.SOCKS5) },
+            http = { entry("HTTPS", ProxyType.HTTP) ?: entry("HTTP", ProxyType.HTTP) })
     }
 
     /** `ProxyServer` is either `host:port` for every protocol or `http=…;https=…;socks=…`. */
-    internal fun windows(run: (List<String>) -> String?): ProxyConfiguration? {
+    internal fun windows(run: (List<String>) -> String?, preferHttp: Boolean = false): ProxyConfiguration? {
         fun value(name: String): String? = run(listOf("reg", "query", WINDOWS_KEY, "/v", name))?.lineSequence()
             ?.map { it.trim() }?.firstOrNull { it.startsWith(name, ignoreCase = true) }
             ?.split(Regex("\\s+"), limit = 3)?.getOrNull(2)?.trim()
@@ -50,20 +67,24 @@ object SystemProxyDetector {
             val pair = part.split('=', limit = 2)
             if (pair.size == 2) pair[0].trim().lowercase() to pair[1].trim() else null
         }.toMap()
-        return entries["socks"]?.let { fromAuthority(ProxyType.SOCKS5, it) }
-            ?: entries["https"]?.let { fromAuthority(ProxyType.HTTP, it) }
-            ?: entries["http"]?.let { fromAuthority(ProxyType.HTTP, it) }
+        return preferred(preferHttp, socks = { entries["socks"]?.let { fromAuthority(ProxyType.SOCKS5, it) } },
+            http = { entries["https"]?.let { fromAuthority(ProxyType.HTTP, it) }
+                ?: entries["http"]?.let { fromAuthority(ProxyType.HTTP, it) } })
     }
 
     /** GNOME-compatible desktops; other Linux desktops are covered by the proxy environment variables. */
-    internal fun gnome(run: (List<String>) -> String?): ProxyConfiguration? {
+    internal fun gnome(run: (List<String>) -> String?, preferHttp: Boolean = false): ProxyConfiguration? {
         fun setting(schema: String, key: String): String? =
             run(listOf("gsettings", "get", schema, key))?.trim()?.removeSurrounding("'")
         if (setting("org.gnome.system.proxy", "mode") != "manual") return null
         fun entry(name: String, type: ProxyType): ProxyConfiguration? =
             proxy(type, setting("org.gnome.system.proxy.$name", "host"), setting("org.gnome.system.proxy.$name", "port"))
-        return entry("socks", ProxyType.SOCKS5) ?: entry("https", ProxyType.HTTP) ?: entry("http", ProxyType.HTTP)
+        return preferred(preferHttp, socks = { entry("socks", ProxyType.SOCKS5) },
+            http = { entry("https", ProxyType.HTTP) ?: entry("http", ProxyType.HTTP) })
     }
+
+    private inline fun preferred(preferHttp: Boolean, socks: () -> ProxyConfiguration?, http: () -> ProxyConfiguration?) =
+        if (preferHttp) http() ?: socks() else socks() ?: http()
 
     internal fun fromUrl(value: String): ProxyConfiguration? {
         val text = value.trim()
@@ -95,9 +116,13 @@ object SystemProxyDetector {
     /** A missing tool, a non-zero exit or a slow answer all mean "no system proxy". */
     private fun runCommand(command: List<String>): String? = try {
         val process = ProcessBuilder(command).redirectErrorStream(true).start()
-        process.outputStream.close()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        if (process.waitFor(3, TimeUnit.SECONDS) && process.exitValue() == 0) output
-        else { process.destroyForcibly(); null }
+        try {
+            process.outputStream.close()
+            if (process.waitFor(3, TimeUnit.SECONDS) && process.exitValue() == 0)
+                process.inputStream.use { it.readNBytes(64 * 1024).decodeToString() }
+            else null
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+        }
     } catch (_: Exception) { null }
 }

@@ -1,0 +1,10 @@
+The fastText lid.176.ftz language identification model is by Facebook Research.
+It is redistributed unchanged under CC BY-SA 3.0.
+Source and attribution: https://fasttext.cc/docs/en/language-identification.html
+License: https://creativecommons.org/licenses/by-sa/3.0/
+
+The application downloads a separate translation model on demand.
+The English to Simplified Chinese model is by Helsinki-NLP / OPUS-MT, Apache-2.0.
+Original model: https://huggingface.co/Helsinki-NLP/opus-mt-en-zh
+INT8 conversion: https://huggingface.co/Second-Dawn-Lab/owll-language-packs
+License: https://www.apache.org/licenses/LICENSE-2.0

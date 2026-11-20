@@ -44,6 +44,7 @@ internal fun SettingsChatPage(preferences: SettingsPreferences, onPreferences: (
     val sendKeyObserver = LocalSettingsSendKeyCallbacks.current
     SideEffect { sendKeyObserver?.invoke(SettingsSendKeyCallbacks(enter, ctrlEnter)) }
     SettingsSystemThemeControls(themeCoordinator, themeOwner, onSaveTheme)
+    SettingsChatTranslation(preferences.translation) { onPreferences(preferences.copy(translation = it)) }
     SettingsFontControl(preferences, onSaveFont, enabled = LocalSettingsPageActive.current, session = fontEditor)
     SettingsAccentColorControls(preferences, onPreferences)
     SettingsGroup("聊天壁纸") {

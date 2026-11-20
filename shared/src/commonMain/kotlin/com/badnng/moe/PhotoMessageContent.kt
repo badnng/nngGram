@@ -41,6 +41,8 @@ internal fun PhotoMessageContent(
     onEnlarge: () -> Unit,
     onJumpToReply: (MessageReply) -> Unit,
     onRetry: () -> Unit,
+    translation: String? = null,
+    showTranslationOriginal: Boolean = false,
 ) {
     val media = checkNotNull(message.media)
     val content = message.richText()
@@ -58,15 +60,17 @@ internal fun PhotoMessageContent(
     val surface = if (message.outgoing) lerp(colors.surfaceContainer, colors.primary, .1f)
         else colors.surfaceContainer
     val body: @Composable ((TextLayoutResult) -> Unit) -> Unit = { reportLayout ->
-        MessageBodyInteractionProvider(message, snapshot, pageInteractive, currentSnapshot, onOpenLink) {
-            InlineMessageEmojiProvider(snapshot, features, visible, active = active) {
-                RichMessageBody(content, selectionState = selectionState, allowCopy = copyAllowed,
-                    canCopyNow = {
-                        val latest = currentSnapshot()
-                        val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
-                        latest.token == snapshot.token && latest.selected?.id == message.chatId &&
-                            latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
-                    }, onTextLayout = reportLayout)
+        TranslatedMessageBody(translation, showTranslationOriginal, reportLayout) { originalLayout ->
+            MessageBodyInteractionProvider(message, snapshot, pageInteractive, currentSnapshot, onOpenLink) {
+                InlineMessageEmojiProvider(snapshot, features, visible, active = active) {
+                    RichMessageBody(content, selectionState = selectionState, allowCopy = copyAllowed,
+                        canCopyNow = {
+                            val latest = currentSnapshot()
+                            val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
+                            latest.token == snapshot.token && latest.selected?.id == message.chatId &&
+                                latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
+                        }, onTextLayout = originalLayout)
+                }
             }
         }
     }
@@ -112,11 +116,11 @@ internal fun PhotoMessageContent(
             }
             if (hasCaption && !captionAbove) Box(Modifier.padding(start = 11.dp, end = 11.dp, top = 5.dp, bottom = 8.dp)) {
                 MessageTextFooterLayout(
-                    canInline = message.reactions.isEmpty() && content.entities.none {
+                    canInline = translation == null && message.reactions.isEmpty() && content.entities.none {
                         it.kind == MessageEntityKind.PRE || it.kind == MessageEntityKind.BLOCK_QUOTE ||
                             it.kind == MessageEntityKind.EXPANDABLE_BLOCK_QUOTE
                     },
-                    layoutKey = content, body = body,
+                    layoutKey = content to translation, body = body,
                     footer = { MessageReactionRow(message, snapshot, features, active = visible && active,
                         metadata = { metadata(false) }) },
                 )

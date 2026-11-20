@@ -12,6 +12,7 @@ if [ -z "${JAVA_HOME:-}" ]; then JAVA_HOME=$(/usr/libexec/java_home -v 21); expo
 export PATH="$JAVA_HOME/bin:$PATH"
 test -f "$root/native/$profile/manifest.properties" || sh "$root/scripts/build-tdlib.sh"
 if [ ! -x "$root/native/$profile/media/ffmpeg" ]; then sh "$root/scripts/prepare-media-macos.sh"; fi
+python3 "$root/scripts/build-offline-translator.py"
 cd "$root"
 # Use --release to require builder-owned Telegram credentials. Default builds allow offline previews.
 case "${1:-}" in

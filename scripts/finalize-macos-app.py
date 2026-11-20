@@ -29,7 +29,8 @@ for line in lines:
 limit = os.environ.get('NNGGRAM_MACOS_MAX_VERSION')
 minimum = tuple(int(part) for part in limit.split('.')) if limit else (11, 0)
 requirements = []
-for binary in [*resources.rglob('*.dylib'), resources / 'media/ffmpeg', resources / 'media/ffprobe']:
+for binary in [*resources.rglob('*.dylib'), resources / 'media/ffmpeg', resources / 'media/ffprobe',
+               resources / 'translation/nnggram-translator']:
     if binary.is_file():
         info = subprocess.check_output(['vtool', '-show-build', str(binary)], text=True)
         for version in re.findall(r'\bminos\s+([0-9.]+)', info):
