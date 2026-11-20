@@ -65,7 +65,7 @@ class OfficialTdContactSignupTest {
         }
     }
 
-    @Test fun everySaveStepHandlesNativeErrorsDiscardExceptionsAndDuplicateCallbacksOnce() {
+    @Test fun eachSaveStepDeduplicatesCallbacksAndAnUncertainWriteCanStillSettle() {
         for (stage in 0..2) for (failure in 0..2) {
             val requests = mutableListOf<Pending>()
             val api = OfficialTdContactSignup { command, reply, fail ->
@@ -80,9 +80,18 @@ class OfficialTdContactSignupTest {
             api.save(value(true), false, { true }, results::add)
             if (stage >= 1) requests.last().reply(TdApi.OptionValueBoolean(false))
             if (stage >= 2) requests.last().reply(TdApi.Ok())
-            requests.last().fail(); requests.last().reply(TdApi.Ok())
-            assertEquals(stage + 1, requests.size); assertNotNull(results.single().error)
+            val pending = requests.last()
+            pending.fail(); pending.reply(TdApi.Ok())
+            assertNotNull(results.single().error)
             assertEquals(stage == 2, results.single().locallyAccepted)
+            if (stage == 1 && failure != 0) {
+                assertEquals(3, requests.size)
+                assertIs<TdApi.GetOption>(requests.last().command)
+                requests.last().reply(TdApi.OptionValueBoolean(true))
+                assertEquals(2, results.size)
+                assertTrue(results.last().locallyAccepted)
+                assertNull(results.last().error)
+            } else assertEquals(stage + 1, requests.size)
         }
         val f = Fixture(); val results = mutableListOf<ContactSignupSaveResult>()
         f.api.save(value(true), false, f::current, results::add)

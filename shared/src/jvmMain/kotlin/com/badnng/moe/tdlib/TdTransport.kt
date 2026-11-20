@@ -1,6 +1,7 @@
 package com.badnng.moe.tdlib
 
 import com.badnng.moe.chat.ChatEvent
+import com.badnng.moe.settings.SettingsError
 import com.badnng.moe.status.AuthorizationPhase
 import com.badnng.moe.status.AuthorizationDetails
 import com.badnng.moe.status.ConnectionPhase
@@ -219,7 +220,12 @@ internal class OfficialTdSession(
         // Already owned resource relinquishment remains available during an authorization change.
         if (request is TdApi.CloseChat || request is TdApi.CancelDownloadFile || authorizationReady())
             send(request, result, failed)
-        else failed()
+        else {
+            val write = SettingsSpecialMutationContext.scopeFor(request)
+            if (write == null) failed()
+            else SettingsSpecialMutationContext.withDispatchFailure(write,
+                SettingsSpecialWriteReceipt(SettingsSpecialWriteOutcome.NOT_DISPATCHED, SettingsError.NOT_READY), failed)
+        }
     }
     private val storageSend: SettingsStorageNativeSend = { request, result, failed ->
         interactionGate.dispatchStorageRequest(request, ::authorizationReady, send, result, failed)
