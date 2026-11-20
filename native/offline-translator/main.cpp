@@ -40,8 +40,9 @@ int main(int argc, char** argv) {
         if (!source.Load("source.spm").ok() || !target.Load("target.spm").ok()) return 1;
         ctranslate2::Translator translator(".", ctranslate2::Device::CPU);
         ctranslate2::TranslationOptions options;
-        options.beam_size = 2;
-        options.max_input_length = 129;
+        options.beam_size = 4;
+        options.no_repeat_ngram_size = 2;
+        options.max_input_length = 130;
         options.max_decoding_length = 192;
 
         std::string line, output;
@@ -57,6 +58,8 @@ int main(int argc, char** argv) {
                 std::vector<std::string> chunk{">>cmn_Hans<<"};
                 chunk.insert(chunk.end(), tokens.begin() + start,
                              tokens.begin() + std::min(start + 128, tokens.size()));
+                // The converted Marian model expects its tokenizer to append EOS.
+                chunk.emplace_back("</s>");
                 batch.push_back(std::move(chunk));
             }
             for (const auto& result : translator.translate_batch(batch, options, 4)) {
