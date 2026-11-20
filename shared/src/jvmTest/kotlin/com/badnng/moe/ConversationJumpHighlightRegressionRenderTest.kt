@@ -183,6 +183,8 @@ class ConversationJumpHighlightRegressionRenderTest {
                 }
                 fixture.actor { openHistoryMessage(fixture.snapshot.token, 15) }
                 val samples = List(44) { captureTarget() }.filterNotNull()
+                // Leave the Swing dispatcher running while the synthetic frame clock is paused.
+                if (mode == ColorSchemeMode.Light) Thread.sleep(MessageJumpHighlightDurationMillis + 100L)
                 val active = assertNotNull(captureTarget(), "The highlighted target must be visible outside the composer blur.")
                 val revision = fixture.snapshot.jumpRevision
                 fixture.actor { openHistoryMessage(fixture.snapshot.token, 15) }

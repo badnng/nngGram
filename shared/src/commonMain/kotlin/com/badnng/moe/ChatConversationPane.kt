@@ -434,7 +434,14 @@ internal fun ConversationPane(
         }
     }
     LaunchedEffect(token, highlightedMessageId) {
-        if (highlightedMessageId != null) { delay(MessageJumpHighlightDurationMillis.toLong()); highlightedMessageId = null }
+        if (highlightedMessageId != null) {
+            // Use the same frame clock as the row animation when rendering pauses.
+            val started = withFrameMillis { it }
+            while (withFrameMillis { it } - started < MessageJumpHighlightDurationMillis) {
+                // Let the next frame advance the highlight lifetime.
+            }
+            highlightedMessageId = null
+        }
     }
     LaunchedEffect(snapshot.replyTarget?.id, snapshot.replyQuote, pageInteractive) {
         if (pageInteractive && chat.canSend && snapshot.replyQuote != null && snapshot.editTarget == null && !snapshot.sendPending) {
