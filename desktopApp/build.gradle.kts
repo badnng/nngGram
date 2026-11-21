@@ -85,6 +85,7 @@ nucleus {
             optimization = NativeImageOptimization.SIZE
             // JNA reads native.encoding (GBK on Chinese Windows), independently of UTF-8 UI text.
             allCharsets = true
+            buildArgs.add("--enable-url-protocols=http,https")
             buildArgs.add("-H:-IncludeMethodData")
             providers.gradleProperty("nativeImageHeap").orNull?.let { buildArgs.add("-J-Xmx$it") }
             providers.gradleProperty("nativeImageThreads").orNull?.let { buildArgs.add("--parallelism=$it") }
@@ -119,6 +120,20 @@ nucleus {
             windows {
                 iconFile.set(project.file("src/main/resources/branding/nnggram.ico"))
             }
+        }
+    }
+}
+
+// jpackage copies extensionless resources without the executable bit on Unix.
+val offlineTranslatorResources = rootProject.layout.projectDirectory.dir("native/$desktopNativeProfile/translation")
+val appImageDirectory = layout.buildDirectory.dir("compose/binaries/main/app")
+tasks.matching { it.name == "createDistributable" || it.name == "createGraalvmNativeDistributable" }.configureEach {
+    inputs.files(offlineTranslatorResources)
+    if (name == "createDistributable" && !System.getProperty("os.name").startsWith("Windows")) {
+        doLast {
+            appImageDirectory.get().asFile.walkTopDown().filter {
+                it.name == "nnggram-translator" && it.parentFile.name == "translation" && it.isFile
+            }.forEach { helper -> check(helper.setExecutable(true, false)) { "Cannot make the offline translator executable." } }
         }
     }
 }

@@ -42,8 +42,15 @@ jobs:
           path: native/${{ matrix.profile }}
           key: posix-tdlib-${{ matrix.profile }}-${{ matrix.runner }}-${{ hashFiles('native/tdlib-source.properties', 'scripts/build-tdlib.sh') }}${{ matrix.format == 'dmg' && format('-{0}', hashFiles('scripts/bundle-macos-libraries.py', 'scripts/prepare-media-macos.sh')) || '' }}
       - name: Install macOS build dependencies
-        if: matrix.format == 'dmg' && steps.tdlib.outputs.cache-hit != 'true'
-        run: brew install ninja gperf openssl@3 ffmpeg
+        if: matrix.format == 'dmg'
+        env:
+          TDLIB_CACHE_HIT: ${{ steps.tdlib.outputs.cache-hit }}
+        run: |
+          if [ "$TDLIB_CACHE_HIT" = true ]; then
+            brew install cmake ninja
+          else
+            brew install cmake ninja gperf openssl@3 ffmpeg
+          fi
       - name: Install Linux packaging and build dependencies
         if: matrix.format == 'deb'
         env:
@@ -51,7 +58,7 @@ jobs:
         run: |
           sudo apt-get update
           if [ "$TDLIB_CACHE_HIT" = true ]; then
-            sudo apt-get install -y fakeroot
+            sudo apt-get install -y fakeroot cmake ninja-build g++
           else
             sudo apt-get install -y fakeroot cmake ninja-build gperf g++ libssl-dev zlib1g-dev
           fi
@@ -82,9 +89,10 @@ jobs:
           if [ "$PACKAGE_FORMAT" = dmg ]; then
             sh scripts/build-macos.sh --release
           else
+            python3 scripts/build-offline-translator.py
             ./gradlew :desktopApp:packageDeb -PrequireTelegramApi=true --no-configuration-cache --console=plain --max-workers=2
           fi
-      - name: Verify packaged TDLib offline and checksum the installer
+      - name: Verify packaged TDLib and translator offline and checksum the installer
         env:
           PACKAGE_FORMAT: ${{ matrix.format }}
         run: |
@@ -98,6 +106,7 @@ jobs:
             app=desktopApp/build/compose/binaries/main/app/nngGram.app
             executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
             "$app/Contents/MacOS/$executable" --tdlib-native-smoke "$report"
+            translator="$app/Contents/app/resources/translation/nnggram-translator"
           else
             set -- desktopApp/build/compose/binaries/main/deb/*.deb
             test "$#" -eq 1
@@ -108,7 +117,11 @@ jobs:
             launcher="$extracted/opt/nnggram/bin/nngGram"
             test -x "$launcher"
             "$launcher" --tdlib-native-smoke "$report"
+            translator="$extracted/opt/nnggram/lib/app/resources/translation/nnggram-translator"
           fi
+          test -x "$translator"
+          detected=$(cd "$(dirname "$translator")" && printf '%s\n' 'Hello, this is an English sentence.' | ./nnggram-translator --detect)
+          test "$detected" = en
           test -s "$report"
           (cd dist && shasum -a 256 "$PACKAGE" > "$PACKAGE.sha256")
       - name: Retain offline TDLib diagnostics

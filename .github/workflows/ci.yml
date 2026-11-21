@@ -78,6 +78,29 @@ jobs:
             desktopApp/build/ci-checks/reports/tests/test/
           if-no-files-found: warn
           retention-days: 14
+  translation:
+    name: Offline translator (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: Windows }
+          - { runner: ubuntu-24.04, platform: Linux }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Build and exercise language detection
+        run: python scripts/build-offline-translator.py
   native:
     name: ${{ needs.plan.outputs.mode == 'release' && 'Test and build official release' || 'Quick commit package' }}
     needs: plan
@@ -165,6 +188,12 @@ jobs:
         shell: pwsh
         run: |
           $nativeExe = (Resolve-Path 'desktopApp/build/ci-native/compose/binaries/main/graalvm-app/nngGram/nngGram.exe').Path
+          $translatorDirectory = Join-Path (Split-Path -Parent $nativeExe) 'translation'
+          Push-Location -LiteralPath $translatorDirectory
+          try {
+            $detected = 'Hello, this is an English sentence.' | & .\nnggram-translator.exe --detect
+            if ($LASTEXITCODE -ne 0 -or $detected -ne 'en') { throw 'Packaged translator smoke failed.' }
+          } finally { Pop-Location }
           foreach ($mode in @('tdlib', 'platform', 'media')) {
             $report = Join-Path $env:RUNNER_TEMP "ci-$mode-native-result.txt"
             $process = Start-Process -FilePath $nativeExe -ArgumentList @("--$mode-native-smoke", "`"$report`"") -Wait -PassThru -WindowStyle Hidden

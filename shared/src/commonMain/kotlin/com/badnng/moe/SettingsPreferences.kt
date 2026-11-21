@@ -38,6 +38,7 @@ internal data class SettingsPreferences(
     val manualThemeDark: Boolean = theme == ColorSchemeMode.Dark || theme == ColorSchemeMode.MonetDark,
     /** Empty selects the built-in device model on the next engine start. */
     val customDeviceModel: String = "",
+    val translation: ChatTranslationPreferences = ChatTranslationPreferences(),
 )
 
 internal val LocalSettingsPreferences = compositionLocalOf { SettingsPreferences() }

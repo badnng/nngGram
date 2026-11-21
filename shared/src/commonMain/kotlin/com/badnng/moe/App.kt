@@ -339,6 +339,11 @@ fun App(
                     drafts = chatDrafts,
                     draftRevisions = chatDraftRevisions,
                     onSettings = { showSettings = true },
+                    onTranslationSettings = {
+                        settingsState.destination = SettingsDestination.CHAT
+                        settingsState.detailOpen = true
+                        showSettings = true
+                    },
                     onSelectChat = onSelectChat,
                     onLoadChats = onLoadChats,
                     onLoadOlder = onLoadOlder,

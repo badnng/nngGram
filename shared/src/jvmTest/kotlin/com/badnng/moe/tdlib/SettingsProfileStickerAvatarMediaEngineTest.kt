@@ -8,10 +8,12 @@ import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
@@ -380,7 +382,7 @@ class SettingsProfileStickerAvatarMediaEngineTest {
         }
     }
 
-    private fun TestScope.prepared(engine: TdEngine, f: Fixture): Triple<SettingsProfileExtrasToken,
+    private suspend fun TestScope.prepared(engine: TdEngine, f: Fixture): Triple<SettingsProfileExtrasToken,
         ProfileStickerAvatarPickerTicket, ProfileStickerAvatarSelectionTicket> {
         val parent = openExtras(engine, f)
         val picker = openPicker(engine, parent)
@@ -400,8 +402,11 @@ class SettingsProfileStickerAvatarMediaEngineTest {
             assertNull(engine.profileStickerAvatarMedia.value)
             checkNotNull(f.chats.me).invoke(ChatResult(AccountProfile(43, "Synthetic self"))); runCurrent()
             assertNotNull(engine.profileStickerAvatarMedia.value)
-            assertTrue(engine.loadSettings(engine.state.value.settings.token, SettingsSection.PROFILE)); runCurrent()
-            assertEquals(43L, engine.state.value.settings.profile?.userId)
+            val token = engine.state.value.settings.token
+            assertTrue(engine.loadSettings(token, SettingsSection.PROFILE))
+            assertNotNull(withTimeoutOrNull(5_000) {
+                engine.state.first { it.settings.token == token && it.settings.profile?.userId == 43L }
+            }, "The synthetic profile did not finish loading for the current settings session.")
             block(engine, f)
         } finally {
             f.closeImmediately = true
@@ -414,7 +419,7 @@ class SettingsProfileStickerAvatarMediaEngineTest {
         }
     }
 
-    private fun TestScope.openExtras(engine: TdEngine, f: Fixture): SettingsProfileExtrasToken {
+    private suspend fun openExtras(engine: TdEngine, f: Fixture): SettingsProfileExtrasToken {
         val parent = engine.state.value.settings.token
         val leaseChecks = AtomicInteger()
         val actorMarker = AtomicReference("not-reached")
@@ -427,9 +432,16 @@ class SettingsProfileStickerAvatarMediaEngineTest {
                     "callbackCurrent=${f.gate.callbackContextIsCurrent()},epoch=${witness?.epoch},blocked=${witness?.blocked}")
             }
             true
-        }); runCurrent()
-        val page = engine.state.value.settings.profileExtras
-        val state = engine.state.value
+        })
+        // Admission only queues the request. Observe the actor's published result before testing its media gate.
+        val opened = withTimeoutOrNull(5_000) {
+            engine.state.first { state ->
+                val page = state.settings.profileExtras
+                page.token.userId == 43L && !page.loading
+            }
+        }
+        val state = opened ?: engine.state.value
+        val page = state.settings.profileExtras
         assertEquals(43L, page.token.userId,
             "Single opening case=${f.openingCase}; parentCurrent=${state.settings.token == parent}; " +
                 "leaseChecks=${leaseChecks.get()}; nativeLoads=${f.settings.profileExtras.loadCalls.get() - priorLoads}; " +

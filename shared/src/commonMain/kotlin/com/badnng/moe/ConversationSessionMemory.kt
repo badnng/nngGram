@@ -2,6 +2,7 @@ package com.badnng.moe
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.TextFieldValue
 import com.badnng.moe.chat.ChatMessage
@@ -22,6 +23,7 @@ internal data class ConversationReplyReturn(val destinationChatId: Long, val pos
 }
 
 internal class ConversationSessionMemory {
+    val translationOverrides = mutableStateMapOf<Pair<Long, String>, Boolean>()
     private val positions = mutableMapOf<Long, ConversationReadPosition>()
     private val restoreOnEntry = mutableMapOf<Long, Boolean>()
     private val requestedPositions = mutableMapOf<Long, ConversationReadPosition>()

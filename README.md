@@ -65,7 +65,31 @@ IDE 的普通 Gradle 运行与 `hotRun` 均会自动传入项目 `native/windows
 
 “状态与设置”可返回连接、诊断、停止和重启页面。群组和频道分别按当前成员的文字、照片、贴纸、视频和文档权限启用发送；服务端仍可能因限制拒绝请求。
 
+群聊顶部可开启翻译。「设置 → 聊天设置 → 群组翻译」可开启进群自动翻译，或选择同时显示原文。默认翻译源是离线英译中，首次遇到英文会下载约 71 MB 的模型，安装后约占 83 MB。应用仅翻译可见消息，离线模式下聊天正文留在本机。
+
 搜索包含已有/公开聊天、频道、机器人，以及照片、视频、文件、链接、音乐和语音等消息分类；“应用”当前检索机器人，不启动小程序。全局与聊天内消息支持发送者和日期筛选，按原生游标分页，部分组合需在每页原生结果中过滤，无法取得准确总数时不虚构计数。频道/应用会话标题列表不支持日期或作者筛选。公开贴文搜索仅请求免费额度（`starCount=0`），额度不足显示限制，不尝试付费。管理员姓名来自真实用户解析；会话信息首次打开即独立查询照片/视频、文件、链接、音乐和语音索引及服务端近似计数，按原生游标分页，不依赖当前已加载历史。资料页仅请求原生缩略图，点击后定位原消息并复用现有预览/播放入口；置顶列表另由原生查询取得。
+
+### 自定义在线翻译接口
+
+在「设置 → 聊天设置 → 群组翻译」选择「自定义在线接口」，填入服务的根地址或完整的 `/translate` 地址。远程服务使用 HTTPS，本机服务也可用 HTTP。你可以直接使用 LibreTranslate，或者用任意语言实现下面的接口。
+
+可以从常用语言中选择，也可以填写服务支持的语言代码，例如 `zh-Hans`。客户端会把自定义代码原样传给服务。
+
+`POST /translate` 接收 UTF-8 JSON。以原文自动识别、目标简体中文为例。
+
+```json
+{"q":"Good morning","source":"auto","target":"zh","format":"text"}
+```
+
+成功时返回 HTTP 200 和下面格式的 JSON。`detectedLanguage` 可省略。接口用 `zh` 表示简体中文，用 `zt` 表示繁体中文。
+
+```json
+{"translatedText":"早上好","detectedLanguage":{"language":"en"}}
+```
+
+语言或文本不支持时返回 HTTP 400 或 422，访问被拒时返回 401 或 403，额度已用完时返回 429。服务失败时返回 5xx。nngGram 会在翻译失败时显示原文。
+
+[Python 服务端模板](scripts/translation_server.py)只使用标准库。运行 `python3 scripts/translation_server.py --demo` 后，在客户端填 `http://127.0.0.1:5000`。演示只翻译上面的样例。实际使用时可替换模板里的 `translate(text, source, target)`，也可以保留 Azure 示例，在服务进程中设置 `AZURE_TRANSLATOR_KEY`（区域资源另设 `AZURE_TRANSLATOR_REGION`），然后去掉 `--demo` 启动。模板监听本机回环地址，远程部署可通过自己的 HTTPS 反向代理访问。
 
 ### 回复与谁已读
 
@@ -127,9 +151,11 @@ proxy_password=
 
 ## 从源码构建
 
+官方三个桌面平台的安装包会构建离线翻译程序和语言识别模型。开发构建可先用 CMake、Ninja 和 Python 3 运行 `python3 scripts/build-offline-translator.py`（Windows 使用 `python` 和 MSVC x64 开发者终端），再运行 Gradle。翻译模型由客户端首次使用时下载。
+
 macOS 使用 JDK 21 和 Homebrew。安装 `cmake ninja gperf openssl@3 ffmpeg` 后运行 `sh scripts/build-macos.sh` 生成当前架构的 DMG，正式构建加 `--release`。当前签名方式为 ad-hoc。
 
-Linux x64 使用 JDK 21。Ubuntu 24.04 安装 `cmake ninja-build gperf g++ libssl-dev zlib1g-dev fakeroot` 后运行 `sh scripts/build-tdlib.sh`，再用 `./gradlew :desktopApp:packageDeb` 生成 DEB。使用下面相同的应用身份配置即可登录。
+Linux x64 使用 JDK 21。Ubuntu 24.04 安装 `cmake ninja-build gperf g++ libssl-dev zlib1g-dev fakeroot` 后运行 `sh scripts/build-tdlib.sh`，再构建离线翻译程序，用 `./gradlew :desktopApp:packageDeb` 生成 DEB。使用下面相同的应用身份配置即可登录。
 
 ### Windows x64
 

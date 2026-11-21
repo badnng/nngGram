@@ -176,27 +176,37 @@ class ConversationJumpHighlightRegressionRenderTest {
             val fixture = NativeFixture()
             fixture.scene(mode, density).use { scene ->
                 scene.settledFrame()
-                fixture.actor { openHistoryMessage(fixture.snapshot.token, 15) }
-                val samples = mutableListOf<RowSample>()
-                repeat(44) {
+                fun captureTarget(): RowSample? {
                     val frame = scene.settledFrame(1, 16)
-                    fixture.measured[15]?.let { bounds ->
-                        val point = Offset(644f * density, bounds.center.y)
-                        samples += RowSample(bounds, point, frame.at(point))
-                    }
+                    val geometry = scene.targetGeometry(fixture.measured[15], density)
+                    return geometry.point?.let { RowSample(checkNotNull(geometry.target), it, frame.at(it)) }
                 }
-                val active = assertNotNull(samples.lastOrNull())
                 fixture.actor { openHistoryMessage(fixture.snapshot.token, 15) }
-                val repeated = scene.settledFrame(1, 16)
-                assertTrue(distance(active.color, repeated.at(active.point)) <= 4,
-                    "A repeated navigation to the already highlighted target cannot restart its fade-in or flash it off.")
+                val samples = List(44) { captureTarget() }.filterNotNull()
+                // Leave the Swing dispatcher running while the synthetic frame clock is paused.
+                if (mode == ColorSchemeMode.Light) Thread.sleep(MessageJumpHighlightDurationMillis + 100L)
+                val active = assertNotNull(captureTarget(), "The highlighted target must be visible outside the composer blur.")
+                val revision = fixture.snapshot.jumpRevision
+                fixture.actor { openHistoryMessage(fixture.snapshot.token, 15) }
+                assertTrue(fixture.snapshot.jumpRevision > revision)
+                var previous = active
+                repeat(8) {
+                    val repeated = assertNotNull(captureTarget(), "Repeating the jump must keep the target visible.")
+                    assertEquals(active.bounds, repeated.bounds)
+                    assertEquals(active.point, repeated.point)
+                    assertTrue(distance(previous.color, repeated.color) <= 4,
+                        "Repeating the jump must preserve the existing fade: $mode/$density, " +
+                            "${previous.color.toUInt().toString(16)} to ${repeated.color.toUInt().toString(16)}")
+                    previous = repeated
+                }
                 val normal = scene.settledFrame(64, 64)
                 val resting = assertNotNull(fixture.measured[15])
                 assertTrue(samples.filter { it.bounds == resting }.any { distance(it.color, normal.at(it.point)) > 3 },
                     "The explicit native request must really paint the Pane's temporary row stripe: $mode/$density")
+                assertTrue(distance(active.color, normal.at(active.point)) > 3, "The repeated jump must occur during the highlight.")
                 fixture.actor { event(ChatEvent.Outbox(10, 1)) }
                 val refreshed = scene.settledFrame(34, 16)
-                val point = Offset(644f * density, resting.center.y)
+                val point = assertNotNull(scene.targetGeometry(fixture.measured[15], density).point)
                 assertEquals(normal.at(point), refreshed.at(point), "An unrelated native refresh cannot replay a consumed jump.")
             }
         }

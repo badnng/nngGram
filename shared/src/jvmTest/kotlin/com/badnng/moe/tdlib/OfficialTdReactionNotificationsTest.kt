@@ -235,7 +235,7 @@ class OfficialTdReactionNotificationsTest {
         }
     }
 
-    @Test fun errorDiscardThrowAndUnexpectedResponseCompleteExactlyOnce() {
+    @Test fun definitiveResponsesAreDeliveredOnceAndUncertainWritesCanStillSettle() {
         for (mode in 0..4) {
             val requests = mutableListOf<Pending>()
             val api = OfficialTdReactionNotifications { command, reply, fail ->
@@ -252,9 +252,16 @@ class OfficialTdReactionNotificationsTest {
             val results = mutableListOf<ReactionNotificationSaveResult>()
             api.save(api.state(), change(), { true }, results::add)
             requests.single().reply(TdApi.Ok()); requests.single().fail()
-            assertEquals(1, results.size)
-            assertEquals(mode == 4, results.single().locallyAccepted)
-            assertEquals(if (mode == 4) null else SettingsError.REQUEST_FAILED, results.single().error)
+            if (mode in 1..3) {
+                assertEquals(2, results.size)
+                assertFalse(results.first().locallyAccepted)
+                assertEquals(SettingsError.NOT_READY, results.first().error)
+                assertTrue(results.last().locallyAccepted)
+                assertNull(results.last().error)
+            } else {
+                assertEquals(mode == 4, results.single().locallyAccepted)
+                assertEquals(if (mode == 4) null else SettingsError.REQUEST_FAILED, results.single().error)
+            }
         }
     }
 

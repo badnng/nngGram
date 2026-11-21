@@ -24,7 +24,15 @@ class SettingsPreferencesTest {
                 }
             }
             val stored = Properties().apply { Files.newBufferedReader(path).use(::load) }
-            assertEquals(setOf("theme", "theme-follow-system", "theme-manual-brightness", "theme-family", "send-key", "wallpaper", "sticker-loop", "interface-scale", "accent-color", "font-mode"), stored.stringPropertyNames())
+            assertEquals(
+                setOf(
+                    "theme", "theme-follow-system", "theme-manual-brightness", "theme-family",
+                    "send-key", "wallpaper", "sticker-loop", "interface-scale", "accent-color", "font-mode",
+                    "translation-source", "translation-target", "translation-show-original",
+                    "translation-provider", "translation-automatic", "translation-offline-source",
+                ),
+                stored.stringPropertyNames(),
+            )
             assertTrue(writeSettingsPreferences(path, SettingsPreferences()))
             assertEquals(SettingsPreferences(), readSettingsPreferences(path))
             Files.list(path.parent).use { assertEquals(1L, it.count()) }

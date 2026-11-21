@@ -22,6 +22,11 @@ class NativeBuildDriverTests(unittest.TestCase):
             scripts.mkdir()
             driver = scripts / 'build-desktop-native.ps1'
             shutil.copyfile(ROOT / 'scripts/build-desktop-native.ps1', driver)
+            (scripts / 'build-offline-translator.py').write_text(
+                'import os, sys\n'
+                'sys.exit(7 if os.environ.get("TEST_GRADLE_FAILURE") == "translator" else 0)\n',
+                encoding='utf-8',
+            )
             recorder = root / 'record_gradle.py'
             recorder.write_text(
                 'import json, os, sys\n'
@@ -38,6 +43,7 @@ class NativeBuildDriverTests(unittest.TestCase):
                 encoding='utf-8',
             )
             env = dict(os.environ, TEST_GRADLE_FAILURE=failure)
+            env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + env['PATH']
             result = subprocess.run(
                 [PWSH, '-NoProfile', '-NonInteractive', '-File', str(driver),
                  '-BuildName', 'contract', *arguments],
@@ -87,6 +93,12 @@ class NativeBuildDriverTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertEqual(1, len(calls))
         self.assertIn('preparation failed (7)', result.stderr)
+
+    def test_translator_failure_stops_before_gradle(self):
+        result, calls = self.run_driver(failure='translator')
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual([], calls)
+        self.assertIn('translator build failed (7)', result.stderr)
 
     def test_native_failure_is_returned_to_ci(self):
         result, calls = self.run_driver(failure='native')

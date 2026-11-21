@@ -18,7 +18,6 @@ import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
-import java.security.MessageDigest
 import java.util.Properties
 import java.util.Locale
 
@@ -283,19 +282,19 @@ internal class DataRootLease private constructor(
     private val lock: FileLock,
 ) : AutoCloseable {
     @Volatile private var closed = false
+    private val protectionIdentity by lazy {
+        rootId?.let { id ->
+            if (System.getProperty("os.name").startsWith("Mac", ignoreCase = true)) {
+                macLocalProtectionIdentity(canonicalRoot, id)
+            } else localProtectionIdentity(canonicalRoot, id)
+        }
+    }
 
     /** Opaque root binding; unavailable identity never becomes an empty identity. */
     fun identity(): ByteArray? {
-        val id = rootId ?: return null
-        if (lockId == null || !isCurrent()) return null
-        val digest = MessageDigest.getInstance("SHA-256")
-        val canonical = canonicalRoot.toString().toByteArray(Charsets.UTF_8)
-        val objectId = id.toByteArray(Charsets.UTF_8)
-        digest.update(java.nio.ByteBuffer.allocate(4).putInt(canonical.size).array())
-        digest.update(canonical)
-        digest.update(java.nio.ByteBuffer.allocate(4).putInt(objectId.size).array())
-        digest.update(objectId)
-        return digest.digest()
+        if (!isCurrent()) return null
+        val identity = protectionIdentity ?: return null
+        return identity.copyOf().takeIf { isCurrent() }
     }
 
     fun isCurrent(): Boolean = try {

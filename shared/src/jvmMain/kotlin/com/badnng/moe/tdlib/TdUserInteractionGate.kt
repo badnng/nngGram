@@ -222,6 +222,8 @@ class TdUserInteractionGate {
         val messageTerminal = ordinary && (request is TdApi.SendMessage || request is TdApi.ResendMessages ||
             request is TdApi.EditMessageText || request is TdApi.EditMessageCaption ||
             request is TdApi.ForwardMessages || request is TdApi.DeleteMessages)
+        // Their owners need the actual response to release an open chat or cancel an owned download.
+        val resourceTerminal = ordinary && (request is TdApi.OpenChat || request is TdApi.DownloadFile)
         // Only the concrete commands used by SettingsController.mutate are admitted
         // for internal settlement. Other settings controllers retain their own owners.
         val settingsMutation = settingsMutationContext.get() == true
@@ -240,7 +242,7 @@ class TdUserInteractionGate {
         // Configured-account writes can traverse the login transport. Exact marked writes
         // still obey ordinary account policy; unmarked login/mandatory traffic keeps its policy.
         val ordinaryPolicy = ordinary || specialTerminal
-        val terminal = messageTerminal || settingsTerminal || folderTerminal || specialTerminal
+        val terminal = messageTerminal || resourceTerminal || settingsTerminal || folderTerminal || specialTerminal
         val witness = callbackWitness.get() ?: localWitness()
         val deferred = ArrayList<() -> Unit>()
         var submitting = true

@@ -79,6 +79,8 @@ internal fun MessageActionsMenu(
     features: ChatFeatureActions? = null,
     onSearchSender: ((Long) -> Unit)? = null,
     copyRequest: MessageTextCopyRequest? = null,
+    translation: String? = null,
+    showTranslationOriginal: Boolean = false,
     pageInteractive: Boolean = true,
     preview: MessageMenuPreview? = null,
     onMountedChange: (Boolean) -> Unit = {},
@@ -90,6 +92,8 @@ internal fun MessageActionsMenu(
     val currentBackdropBlur by rememberUpdatedState(LocalContextMenuBlurProgress.current)
     val currentPreview by rememberUpdatedState(preview)
     val currentPageInteractive by rememberUpdatedState(pageInteractive)
+    val currentTranslation by rememberUpdatedState(translation)
+    val currentShowTranslationOriginal by rememberUpdatedState(showTranslationOriginal)
     val fraction = remember(snapshot.token, message.id) { Animatable(0f) }
     val alpha = remember(snapshot.token, message.id) { Animatable(0f) }
     var mounted by remember(snapshot.token, message.id) { mutableStateOf(false) }
@@ -143,8 +147,9 @@ internal fun MessageActionsMenu(
     val currentToken by rememberUpdatedState(snapshot.token)
     val menuExpanded by rememberUpdatedState(acceptsInput)
     // Freeze a request even in hosts that do not supply a text-selection container.
-    val fallbackCopyRequest = remember(snapshot.token, message.id, expanded) {
-        messageTextCopyRequest(snapshot.token, message, emptyList())
+    val fallbackCopyRequest = remember(snapshot.token, message.id, expanded, translation, showTranslationOriginal) {
+        messageTextCopyRequest(snapshot.token, message, emptyList(), translation, showTranslationOriginal,
+            copyTranslation = translation != null)
     }
     val frozenCopyRequest = copyRequest ?: fallbackCopyRequest
     var copyingLink by remember(message.id) { mutableStateOf(false) }
@@ -282,12 +287,13 @@ internal fun MessageActionsMenu(
                                             MessageMenuRow("该用户的其他消息", MiuixIcons.Regular.Search,
                                                 onClick = { onDismiss(); onSearchSender(message.senderId) })
                                         }
-                                        if (validatedMessageTextCopy(snapshot, frozenCopyRequest, pageInteractive) != null &&
-                                            frozenCopyRequest.source.text.isNotEmpty()) {
+                                        if (validatedMessageTextCopy(snapshot, frozenCopyRequest, pageInteractive,
+                                                translation, showTranslationOriginal) != null && frozenCopyRequest.copySource.text.isNotEmpty()) {
                                             MessageMenuRow(if (frozenCopyRequest.selection != null) "复制选中文本" else "复制文本",
                                                 MiuixIcons.Regular.Copy, onClick = {
                                                 val copied = validatedMessageTextCopy(latestSnapshot, frozenCopyRequest,
-                                                    menuExpanded && currentPageInteractive) ?: return@MessageMenuRow
+                                                    menuExpanded && currentPageInteractive, currentTranslation,
+                                                    currentShowTranslationOriginal) ?: return@MessageMenuRow
                                                 clipboard.setText(AnnotatedString(copied.text))
                                                 onDismiss()
                                             })

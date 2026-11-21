@@ -31,6 +31,17 @@ class SystemProxyTest {
         assertNull(SystemProxyDetector.detect(DesktopPlatform.MACOS_X64, emptyMap()) { "<dictionary> {\n}\n" })
     }
 
+    @Test fun httpsDownloadsPreferTheSystemHttpProxyEvenWithoutShellEnvironment() {
+        val proxy = assertNotNull(SystemProxyDetector.detectForHttp(DesktopPlatform.MACOS_ARM64, emptyMap()) { scutil })
+        assertEquals(ProxyType.HTTP, proxy.type)
+        assertEquals(7897, proxy.port)
+        val fallback = assertNotNull(SystemProxyDetector.detectForHttp(DesktopPlatform.MACOS_ARM64, emptyMap()) {
+            scutil.replace("HTTPEnable : 1", "HTTPEnable : 0")
+        })
+        assertEquals(ProxyType.SOCKS5, fallback.type)
+        assertEquals(7898, fallback.port)
+    }
+
     @Test fun windowsReadsBothRegistryFormsAndRespectsTheDisabledFlag() {
         fun registry(enable: String, server: String): (List<String>) -> String? = { command ->
             when (command.last()) {
