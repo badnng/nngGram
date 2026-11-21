@@ -1456,8 +1456,24 @@ internal fun MessageBubble(
             else -> null
         }
         // Keep selection in memory and discard it when the message or conversation changes.
-        val selectionState = remember(snapshot.token, message.presentationId, content) { SelectionState() }
-        var menuQuote by remember(snapshot.token, message.id, content) { mutableStateOf<MessageQuote?>(null) }
+        val selectionState = remember(snapshot.token, message.presentationId, content, translation == null || showTranslationOriginal) {
+            SelectionState()
+        }
+        val translationSelectionState = remember(snapshot.token, message.presentationId, content, translation, showTranslationOriginal) {
+            SelectionState()
+        }
+        var translationBounds by remember(snapshot.token, message.presentationId, content, translation, showTranslationOriginal) {
+            mutableStateOf<Rect?>(null)
+        }
+        val canCopyBodyNow: () -> Boolean = {
+            val latest = currentBubbleSnapshot
+            val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
+            pageInteractive && latest.token == snapshot.token && latest.selected?.id == message.chatId &&
+                latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
+        }
+        var menuQuote by remember(snapshot.token, message.id, content, translation, showTranslationOriginal) {
+            mutableStateOf<MessageQuote?>(null)
+        }
         var menuCopyRequest by remember(snapshot.token, message.id) { mutableStateOf<MessageTextCopyRequest?>(null) }
         var menuAnchorBounds by remember(snapshot.token, message.id) { mutableStateOf<Rect?>(null) }
         val currentVideoBounds by rememberUpdatedState(onVideoBounds)
@@ -1499,8 +1515,16 @@ internal fun MessageBubble(
                 .onPointerEvent(PointerEventType.Press, pass = PointerEventPass.Initial) { event ->
                     if (pageInteractive && sourceAvailable && event.buttons.isSecondaryPressed) {
                         // Freeze before the focusable popup clears the text selection.
-                        menuQuote = content.quoteFromSelection(selectionState.selectedTexts)
-                        menuCopyRequest = messageTextCopyRequest(snapshot.token, message, selectionState.selectedTexts)
+                        val pointer = event.changes.firstOrNull()?.position?.let { local ->
+                            menuAnchorBounds?.topLeft?.plus(local)
+                        }
+                        val copyTranslation = translation != null && (!showTranslationOriginal ||
+                            pointer?.let { translationBounds?.contains(it) } == true)
+                        val selectedTexts = if (copyTranslation) translationSelectionState.selectedTexts else selectionState.selectedTexts
+                        menuQuote = if (!copyTranslation && (translation == null || showTranslationOriginal))
+                            content.quoteFromSelection(selectedTexts) else null
+                        menuCopyRequest = messageTextCopyRequest(snapshot.token, message, selectedTexts,
+                            translation, showTranslationOriginal, copyTranslation)
                         menuOwnerToken = snapshot.token
                         onMenuOpen()
                         event.changes.forEach { it.consume() }
@@ -1520,7 +1544,9 @@ internal fun MessageBubble(
                             selectionState = selectionState, copyAllowed = copyAllowed,
                             currentSnapshot = { currentBubbleSnapshot }, onOpenLink = onOpenLink,
                             onEnlarge = { onEnlarge(checkNotNull(message.media)) }, onJumpToReply = onJumpToReply,
-                            onRetry = onRetry, translation = translation, showTranslationOriginal = showTranslationOriginal)
+                            onRetry = onRetry, translation = translation, showTranslationOriginal = showTranslationOriginal,
+                            translationSelectionState = translationSelectionState,
+                            canCopyBodyNow = canCopyBodyNow, onTranslationBounds = { translationBounds = it })
                     } else {
                         val surface = if (unwrapped) Modifier else Modifier
                             .chatSquircleBackground(if (message.outgoing) lerp(MiuixTheme.colorScheme.surfaceContainer, MiuixTheme.colorScheme.primary, 0.1f)
@@ -1546,17 +1572,14 @@ internal fun MessageBubble(
                             val captionAbove = message.showCaptionAboveMedia && content.text.isNotEmpty() &&
                                 message.kind in setOf(MessageKind.PHOTO, MessageKind.VIDEO, MessageKind.ANIMATION) && media != null
                             val textBody: @Composable ((androidx.compose.ui.text.TextLayoutResult) -> Unit) -> Unit = { reportLayout ->
-                                TranslatedMessageBody(translation, showTranslationOriginal, reportLayout) { originalLayout ->
+                                TranslatedMessageBody(translation, showTranslationOriginal, reportLayout,
+                                    selectionState = translationSelectionState, allowCopy = copyAllowed,
+                                    canCopyNow = canCopyBodyNow, onTranslationBounds = { translationBounds = it }) { originalLayout ->
                                     MessageBodyInteractionProvider(message, snapshot, pageInteractive,
                                         currentSnapshot = { currentBubbleSnapshot }, openLink = onOpenLink) {
                                         InlineMessageEmojiProvider(snapshot, features, visible, active = animate) {
                                             RichMessageBody(content, selectionState = selectionState, allowCopy = copyAllowed,
-                                                canCopyNow = {
-                                                    val latest = currentBubbleSnapshot
-                                                    val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
-                                                    latest.token == snapshot.token && latest.selected?.id == message.chatId &&
-                                                        latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
-                                                }, onTextLayout = originalLayout)
+                                                canCopyNow = canCopyBodyNow, onTextLayout = originalLayout)
                                         }
                                     }
                                 }
@@ -1658,7 +1681,8 @@ internal fun MessageBubble(
                     onReload = { features.loadMessageActions(snapshot.token, message.id) },
                     onEdit = onEdit, onForward = onForward, onDelete = onDelete, expanded = effectiveMenuOpen,
                     features = features, onSearchSender = onSearchSender,
-                    copyRequest = menuCopyRequest, pageInteractive = pageInteractive && sourceAvailable && menuIdentityValid,
+                    copyRequest = menuCopyRequest, translation = translation, showTranslationOriginal = showTranslationOriginal,
+                    pageInteractive = pageInteractive && sourceAvailable && menuIdentityValid,
                     preview = preview, onMountedChange = mounted, onSaveAs = onSaveAs)
         })
     }

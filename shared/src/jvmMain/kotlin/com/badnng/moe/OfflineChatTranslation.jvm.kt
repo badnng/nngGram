@@ -4,7 +4,6 @@ import com.badnng.moe.platform.DesktopPaths
 import com.badnng.moe.platform.DesktopPlatform
 import java.io.IOException
 import java.io.InputStream
-import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -174,11 +173,8 @@ private object OfflineEnglishChineseModel {
         var url = URI(PACK_URL)
         val proxy = translationWebProxy()
         repeat(4) {
-            val connection = translationConnection(url, proxy)
+            val connection = executeTranslationRequest(url, proxy, connectTimeout = 10_000, readTimeout = 15_000)
             try {
-                connection.instanceFollowRedirects = false
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 15_000
                 when (connection.responseCode) {
                     200 -> {
                         val digest = MessageDigest.getInstance("SHA-256")

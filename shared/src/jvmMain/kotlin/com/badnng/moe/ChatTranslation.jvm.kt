@@ -1,11 +1,6 @@
 package com.badnng.moe
 
-import com.badnng.moe.tdlib.ProxyType
-import com.badnng.moe.tdlib.SystemProxyDetector
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Proxy
 import java.net.URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -16,7 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private val loopbackTranslationHosts = setOf("localhost", "127.0.0.1", "[::1]")
+internal val loopbackTranslationHosts = setOf("localhost", "127.0.0.1", "[::1]")
 
 internal actual fun normalizeChatTranslationServer(input: String): String? {
     val address = input.trim()
@@ -35,20 +30,6 @@ internal actual fun normalizeChatTranslationServer(input: String): String? {
 
 private const val MAX_TRANSLATION_RESPONSE_BYTES = 128 * 1024
 
-internal fun translationWebProxy(): Proxy? = SystemProxyDetector.detectForHttp()?.let {
-    val type = if (it.type == ProxyType.HTTP) Proxy.Type.HTTP else Proxy.Type.SOCKS
-    Proxy(type, InetSocketAddress.createUnresolved(it.host, it.port))
-}
-
-internal fun translationConnection(endpoint: URI, proxy: Proxy?): HttpURLConnection {
-    val url = endpoint.toURL()
-    return when {
-        endpoint.host.lowercase() in loopbackTranslationHosts -> url.openConnection(Proxy.NO_PROXY)
-        proxy != null -> url.openConnection(proxy)
-        else -> url.openConnection()
-    } as HttpURLConnection
-}
-
 internal actual suspend fun translateChatText(
     server: String, source: String, target: String, text: String,
 ): ChatTranslationResult = withContext(Dispatchers.IO) {
@@ -63,21 +44,14 @@ internal actual suspend fun translateChatText(
     }.toString().toByteArray(Charsets.UTF_8)
     val uri = URI(endpoint)
     val connection = try {
-        translationConnection(uri, if (uri.host.lowercase() in loopbackTranslationHosts) null else translationWebProxy())
+        executeTranslationRequest(
+            uri, if (uri.host.lowercase() in loopbackTranslationHosts) null else translationWebProxy(),
+            connectTimeout = 5_000, readTimeout = 20_000, body = body,
+        )
     } catch (_: IOException) {
         return@withContext ChatTranslationResult.Failure.CONNECTION
     }
     try {
-        connection.connectTimeout = 5_000
-        connection.readTimeout = 20_000
-        connection.instanceFollowRedirects = false
-        connection.useCaches = false
-        connection.requestMethod = "POST"
-        connection.doOutput = true
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        connection.setRequestProperty("Accept", "application/json")
-        connection.setFixedLengthStreamingMode(body.size)
-        connection.outputStream.use { it.write(body) }
         when (connection.responseCode) {
             200 -> {
                 val response = connection.inputStream.use { it.readNBytes(MAX_TRANSLATION_RESPONSE_BYTES + 1) }

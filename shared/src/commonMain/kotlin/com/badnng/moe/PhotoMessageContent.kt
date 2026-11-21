@@ -5,6 +5,7 @@ import androidx.compose.foundation.text.selection.SelectionState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +44,9 @@ internal fun PhotoMessageContent(
     onRetry: () -> Unit,
     translation: String? = null,
     showTranslationOriginal: Boolean = false,
+    translationSelectionState: SelectionState,
+    canCopyBodyNow: () -> Boolean,
+    onTranslationBounds: (Rect) -> Unit,
 ) {
     val media = checkNotNull(message.media)
     val content = message.richText()
@@ -60,16 +64,13 @@ internal fun PhotoMessageContent(
     val surface = if (message.outgoing) lerp(colors.surfaceContainer, colors.primary, .1f)
         else colors.surfaceContainer
     val body: @Composable ((TextLayoutResult) -> Unit) -> Unit = { reportLayout ->
-        TranslatedMessageBody(translation, showTranslationOriginal, reportLayout) { originalLayout ->
+        TranslatedMessageBody(translation, showTranslationOriginal, reportLayout,
+            selectionState = translationSelectionState, allowCopy = copyAllowed,
+            canCopyNow = canCopyBodyNow, onTranslationBounds = onTranslationBounds) { originalLayout ->
             MessageBodyInteractionProvider(message, snapshot, pageInteractive, currentSnapshot, onOpenLink) {
                 InlineMessageEmojiProvider(snapshot, features, visible, active = active) {
                     RichMessageBody(content, selectionState = selectionState, allowCopy = copyAllowed,
-                        canCopyNow = {
-                            val latest = currentSnapshot()
-                            val source = latest.messages.firstOrNull { it.id == message.id && it.chatId == message.chatId }
-                            latest.token == snapshot.token && latest.selected?.id == message.chatId &&
-                                latest.selected?.hasProtectedContent == false && source?.canBeSaved == true && source.richText() == content
-                        }, onTextLayout = originalLayout)
+                        canCopyNow = canCopyBodyNow, onTextLayout = originalLayout)
                 }
             }
         }

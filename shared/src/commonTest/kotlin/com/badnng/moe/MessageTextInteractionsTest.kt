@@ -138,6 +138,61 @@ class MessageTextInteractionsTest {
         assertNull(validatedMessageTextCopy(snapshot, unlocatedSelection, true))
     }
 
+    @Test fun translatedCopyUsesTheDisplayedTextAndKeepsRepeatedUtf16SelectionOccurrence() {
+        val item = message.copy(text = "原文内容", entities = emptyList())
+        val translated = "重复 🐈 重复"
+        val displayed = AnnotatedString(translated).withQuoteSourceOffsets()
+        val second = displayed.subSequence(6, displayed.length)
+        val request = messageTextCopyRequest(token, item, listOf(second), translated)
+
+        assertTrue(request.copyTranslation)
+        assertEquals(6, request.selectionOffset)
+        assertEquals("重复", validatedMessageTextCopy(snapshot.copy(messages = listOf(item)), request, true, translated)?.text)
+        assertEquals(translated, validatedMessageTextCopy(snapshot.copy(messages = listOf(item)),
+            messageTextCopyRequest(token, item, emptyList(), translated), true, translated)?.text)
+    }
+
+    @Test fun originalSelectionRemainsNativeWhenTranslationAndOriginalAreBothShown() {
+        val source = RichMessageText("原文 🐈 原文", emptyList())
+        val item = message.copy(text = source.text, entities = source.entities)
+        val translated = "translated text"
+        val original = AnnotatedString(source.text).withQuoteSourceOffsets().subSequence(0, 5)
+        val request = messageTextCopyRequest(token, item, listOf(original), translated, showOriginal = true)
+
+        assertFalse(request.copyTranslation)
+        assertEquals("原文 🐈", validatedMessageTextCopy(snapshot.copy(messages = listOf(item)), request, true,
+            translated, showOriginal = true)?.text)
+    }
+
+    @Test fun translatedSelectionRequiresTheSameDisplayModeAndContent() {
+        val item = message.copy(text = "原文", entities = emptyList())
+        val translated = "译文"
+        val selected = AnnotatedString(translated).withQuoteSourceOffsets()
+        val request = messageTextCopyRequest(token, item, listOf(selected), translated, showOriginal = true,
+            copyTranslation = true)
+        val current = snapshot.copy(messages = listOf(item))
+
+        assertEquals(translated, validatedMessageTextCopy(current, request, true, translated, showOriginal = true)?.text)
+        assertNull(validatedMessageTextCopy(current, request, true, translated, showOriginal = false))
+        assertNull(validatedMessageTextCopy(current, request, true, "别的译文", showOriginal = true))
+        assertNull(validatedMessageTextCopy(current, request, true, null, showOriginal = true))
+    }
+
+    @Test fun translatedCopyRetainsProtectionAndNativeSourceOwnershipChecks() {
+        val item = message.copy(text = "原文", entities = emptyList())
+        val translated = "译文"
+        val request = messageTextCopyRequest(token, item, emptyList(), translated)
+        val current = snapshot.copy(messages = listOf(item))
+
+        assertEquals(translated, validatedMessageTextCopy(current, request, true, translated)?.text)
+        assertNull(validatedMessageTextCopy(current.copy(selected = current.selected!!.copy(hasProtectedContent = true)),
+            request, true, translated))
+        assertNull(validatedMessageTextCopy(current.copy(token = token.copy(selection = 8)), request, true, translated))
+        assertNull(validatedMessageTextCopy(current.copy(messages = listOf(item.copy(text = "已改动"))), request, true, translated))
+        assertNull(validatedMessageTextCopy(current.copy(messages = listOf(item.copy(canBeSaved = false))),
+            request, true, translated))
+    }
+
     @Test fun interactionDiagnosticsNeverIncludeSourceOrTargets() {
         val copy = messageTextCopyRequest(token, message, emptyList())
         listOf(copy.toString(), link.toString()).forEach { assertFalse("查看图片" in it); assertFalse("example.org" in it) }

@@ -12,7 +12,11 @@ internal data class MessageTextCopyRequest(
     val selectionOffset: Int? = null,
     val selection: RichMessageText? = null,
     val hadSelection: Boolean = selection != null,
+    val translation: String? = null,
+    val showOriginal: Boolean = false,
+    val copyTranslation: Boolean = false,
 ) {
+    val copySource: RichMessageText get() = if (copyTranslation) RichMessageText(translation.orEmpty()) else source
     override fun toString() = "MessageTextCopyRequest(redacted)"
 }
 
@@ -20,24 +24,36 @@ internal fun messageTextCopyRequest(
     token: ChatToken,
     message: ChatMessage,
     selectedTexts: List<AnnotatedString>,
+    translation: String? = null,
+    showOriginal: Boolean = false,
+    copyTranslation: Boolean = translation != null && !showOriginal,
 ): MessageTextCopyRequest {
     val source = message.richText()
-    val selection = source.sourceTextSelection(selectedTexts)
+    val copySource = if (copyTranslation) RichMessageText(translation.orEmpty()) else source
+    val selection = copySource.sourceTextSelection(selectedTexts)
     return MessageTextCopyRequest(token, message.chatId, message.id, source, selection?.first, selection?.second,
-        selectedTexts.any { it.isNotEmpty() })
+        selectedTexts.any { it.isNotEmpty() }, translation, showOriginal, copyTranslation)
 }
 
 internal fun validatedMessageTextCopy(
     snapshot: ChatSnapshot,
     request: MessageTextCopyRequest,
     pageInteractive: Boolean,
+    translation: String? = null,
+    showOriginal: Boolean = false,
 ): RichMessageText? {
     val message = currentMessageTextSource(snapshot, request.token, request.chatId, request.messageId,
         request.source, pageInteractive) ?: return null
     if (snapshot.selected?.hasProtectedContent != false || !message.canBeSaved) return null
-    val selection = request.selection ?: return request.source.takeUnless { request.hadSelection }
+    // Native source ownership and displayed text ownership are separate. A translated
+    // selection never becomes a native quote or survives a change of display mode.
+    if (request.translation != translation || request.showOriginal != showOriginal ||
+        request.copyTranslation && translation == null ||
+        !request.copyTranslation && translation != null && !showOriginal) return null
+    val copySource = request.copySource
+    val selection = request.selection ?: return copySource.takeUnless { request.hadSelection }
     val start = request.selectionOffset ?: return null
-    return selection.takeIf { request.source.slice(start, start + it.text.length) == it }
+    return selection.takeIf { copySource.slice(start, start + it.text.length) == it }
 }
 
 internal data class MessageTextLinkRequest(

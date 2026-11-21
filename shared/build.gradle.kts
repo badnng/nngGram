@@ -71,6 +71,7 @@ kotlin {
         jvmMain.dependencies {
             implementation(libs.filekit.dialogs)
             implementation(libs.jna)
+            implementation(libs.okhttp.jvm)
             implementation(libs.bouncycastle.bcprov)
             implementation(files(rootProject.file(hostTdlibBundle)))
             implementation(libs.kotlinx.coroutinesCore)

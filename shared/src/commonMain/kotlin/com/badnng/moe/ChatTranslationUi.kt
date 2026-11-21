@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,11 +13,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.badnng.moe.chat.RichMessageText
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -129,6 +134,10 @@ internal fun TranslatedMessageBody(
     translation: String?,
     showOriginal: Boolean,
     onTextLayout: (TextLayoutResult) -> Unit,
+    selectionState: SelectionState,
+    allowCopy: Boolean,
+    canCopyNow: () -> Boolean,
+    onTranslationBounds: (Rect) -> Unit,
     original: @Composable ((TextLayoutResult) -> Unit) -> Unit,
 ) {
     if (translation == null) {
@@ -136,8 +145,12 @@ internal fun TranslatedMessageBody(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (showOriginal) original { }
-            Text("译文", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 11.sp)
-            Text(translation, style = chatMessageTextStyle())
+            Column(Modifier.onGloballyPositioned { onTranslationBounds(it.boundsInWindow(clipBounds = false)) },
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("译文", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 11.sp)
+                RichMessageBody(remember(translation) { RichMessageText(translation) },
+                    selectionState = selectionState, allowCopy = allowCopy, canCopyNow = canCopyNow)
+            }
         }
     }
 }
